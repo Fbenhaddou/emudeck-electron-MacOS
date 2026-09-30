@@ -4,6 +4,7 @@ import {
   dialog,
   ipcMain,
   Menu,
+  nativeTheme,
   screen,
   session,
   shell,
@@ -151,43 +152,120 @@ ipcMain.handle(
   },
 );
 
+const smokeErrors: string[] = [];
+let smokeFinished = false;
+let smokeWatchdog: ReturnType<typeof setTimeout> | undefined;
+
+async function finishSmoke(
+  report: Record<string, unknown>,
+  success: boolean,
+): Promise<void> {
+  if (!smokeDirectory || smokeFinished) return;
+  smokeFinished = true;
+  if (smokeWatchdog) clearTimeout(smokeWatchdog);
+  try {
+    await fs.mkdir(smokeDirectory, { recursive: true });
+    await fs.writeFile(
+      path.join(smokeDirectory, 'report.json'),
+      JSON.stringify(
+        {
+          ...report,
+          ready: success,
+          errors: smokeErrors.map((message) =>
+            message.split(os.homedir()).join('<home>'),
+          ),
+          packaged: app.isPackaged,
+          architecture: process.arch,
+        },
+        null,
+        2,
+      ),
+    );
+  } finally {
+    app.exit(success ? 0 : 1);
+  }
+}
+
+// Polling readiness and changing one window's appearance must run sequentially.
+/* eslint-disable no-await-in-loop, no-restricted-syntax */
 async function captureSmoke(window: BrowserWindow): Promise<void> {
   if (!smokeDirectory) return;
-  const started = Date.now();
-  const deadline = started + 15000;
+  const deadline = Date.now() + 15000;
   let ready = false;
   while (!ready && Date.now() < deadline && !window.isDestroyed()) {
     ready = await window.webContents.executeJavaScript(
-      'Boolean(document.querySelector("#root")?.textContent?.trim() && window.mac && !window.electron && !window.require)',
+      `Boolean(document.querySelector('[data-ready="true"]') && document.querySelector("#root")?.textContent?.trim() && window.mac && !window.electron && !window.require)`,
     );
-    if (!ready) await new Promise((resolve) => setTimeout(resolve, 100));
+    if (!ready)
+      await new Promise((resolve) => {
+        setTimeout(resolve, 100);
+      });
   }
+  if (!ready) throw new Error('Renderer did not reach data-ready=true.');
+  // This crosses the actual isolated preload and validated main-process IPC boundary.
+  const status: MacStatus = await window.webContents.executeJavaScript(
+    'window.mac.getStatus()',
+  );
+  if (
+    status.platform !== 'darwin' ||
+    !status.appVersion ||
+    !(status.memoryBytes > 0) ||
+    status.libraryError
+  ) {
+    throw new Error(
+      'Preload status IPC returned an invalid or unsuccessful status.',
+    );
+  }
+  // Electron exposes this runtime inspection method but omits it from public typings.
+  const inspected = window.webContents as unknown as {
+    getLastWebPreferences(): Record<string, unknown>;
+  };
+  const preferences = inspected.getLastWebPreferences();
+  const safe =
+    preferences.sandbox === true &&
+    preferences.contextIsolation === true &&
+    preferences.nodeIntegration === false &&
+    preferences.webSecurity === true;
+  if (!safe)
+    throw new Error(
+      'Actual web preferences do not satisfy the security boundary.',
+    );
   await fs.mkdir(smokeDirectory, { recursive: true });
-  const screenshot = await window.webContents.capturePage();
-  await fs.writeFile(
-    path.join(smokeDirectory, 'window.png'),
-    Uint8Array.from(screenshot.toPNG()),
+  const screenshots: string[] = [];
+  const variants: Array<{
+    name: string;
+    theme: 'light' | 'dark';
+    width: number;
+    height: number;
+  }> = [
+    { name: 'light', theme: 'light', width: 1120, height: 760 },
+    { name: 'dark', theme: 'dark', width: 1120, height: 760 },
+    { name: 'small', theme: 'light', width: 760, height: 560 },
+  ];
+  for (const variant of variants) {
+    nativeTheme.themeSource = variant.theme;
+    window.setSize(variant.width, variant.height);
+    await new Promise((resolve) => {
+      setTimeout(resolve, 250);
+    });
+    await window.webContents.executeJavaScript(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+    );
+    const screenshot = await window.webContents.capturePage();
+    if (screenshot.isEmpty()) throw new Error('Screenshot was empty.');
+    const filename = `window-${variant.name}.png`;
+    await fs.writeFile(
+      path.join(smokeDirectory, filename),
+      Uint8Array.from(screenshot.toPNG()),
+    );
+    screenshots.push(filename);
+  }
+  await finishSmoke(
+    { status, webPreferences: preferences, screenshots },
+    smokeErrors.length === 0,
   );
-  await fs.writeFile(
-    path.join(smokeDirectory, 'report.json'),
-    JSON.stringify(
-      {
-        ready,
-        packaged: app.isPackaged,
-        architecture: process.arch,
-        webPreferences: {
-          sandbox: true,
-          contextIsolation: true,
-          nodeIntegration: false,
-        },
-        status: await getStatus(),
-      },
-      null,
-      2,
-    ),
-  );
-  app.exit(ready ? 0 : 1);
 }
+/* eslint-enable no-await-in-loop, no-restricted-syntax */
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -218,21 +296,58 @@ function createWindow(): void {
     if (mainWindow === window) mainWindow = null;
   });
   window.once('ready-to-show', () => window.show());
+  if (smokeDirectory) {
+    smokeWatchdog = setTimeout(() => {
+      smokeErrors.push('Application smoke watchdog expired.');
+      void finishSmoke({}, false);
+    }, 30000);
+    window.webContents.on('console-message', (details) => {
+      if (details.level === 'error')
+        smokeErrors.push(`Renderer: ${details.message}`);
+    });
+    window.webContents.on('preload-error', (_event, _preload, error) => {
+      smokeErrors.push(`Preload: ${error.message}`);
+      void finishSmoke({}, false);
+    });
+    window.webContents.on('render-process-gone', (_event, details) => {
+      smokeErrors.push(`Renderer exited: ${details.reason}`);
+      void finishSmoke({}, false);
+    });
+    window.webContents.on('dom-ready', () => {
+      void window.webContents
+        .executeJavaScript(
+          `
+        window.addEventListener('error', event => console.error('Smoke page error:', event.message));
+        window.addEventListener('unhandledrejection', event => console.error('Smoke unhandled rejection:', String(event.reason)));
+      `,
+        )
+        .catch(() => {
+          smokeErrors.push('Could not attach page error observers.');
+        });
+    });
+  }
   window.webContents.once('did-finish-load', () => {
-    captureSmoke(window).catch(async () => {
-      if (smokeDirectory) {
-        await fs.mkdir(smokeDirectory, { recursive: true });
-        await fs.writeFile(
-          path.join(smokeDirectory, 'report.json'),
-          JSON.stringify({ ready: false, error: 'Smoke capture failed.' }),
-        );
-        app.exit(1);
-      }
+    captureSmoke(window).catch((error: unknown) => {
+      smokeErrors.push(
+        error instanceof Error ? error.message : 'Smoke capture failed.',
+      );
+      void finishSmoke({}, false);
     });
   });
   window.loadURL(rendererURL).catch(() => {
-    if (smokeDirectory) app.exit(1);
+    if (smokeDirectory) {
+      smokeErrors.push('Renderer document failed to load.');
+      void finishSmoke({}, false);
+    }
   });
+}
+
+function denyPermission(
+  _contents: Electron.WebContents,
+  _permission: string,
+  callback: (allowed: boolean) => void,
+): void {
+  callback(false);
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -246,9 +361,7 @@ if (!app.requestSingleInstanceLock()) {
   app
     .whenReady()
     .then(() => {
-      session.defaultSession.setPermissionRequestHandler(
-        (_contents, _permission, callback) => callback(false),
-      );
+      session.defaultSession.setPermissionRequestHandler(denyPermission);
       session.defaultSession.setPermissionCheckHandler(() => false);
       Menu.setApplicationMenu(
         Menu.buildFromTemplate([
@@ -273,6 +386,7 @@ if (!app.requestSingleInstanceLock()) {
       app.on('activate', () => {
         if (!mainWindow) createWindow();
       });
+      return undefined;
     })
     .catch(() => app.exit(1));
   app.on('window-all-closed', () => {
