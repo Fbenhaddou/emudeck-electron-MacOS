@@ -11,14 +11,22 @@ async function run() {
   const directory = await fs.mkdtemp(
     path.join(os.tmpdir(), 'emulation-smoke-'),
   );
-  const packagedExecutable = process.argv[2];
-  const executable = packagedExecutable
-    ? path.resolve(packagedExecutable)
-    : require('electron');
-  const args = packagedExecutable ? [] : [path.join(root, 'release/app')];
+  const development = process.argv[2] === '--dev';
+  const packagedExecutable = development ? undefined : process.argv[2];
+  const executable = development
+    ? process.execPath
+    : packagedExecutable
+      ? path.resolve(packagedExecutable)
+      : require('electron');
+  const args = development
+    ? [path.join(__dirname, 'start-macos.js')]
+    : packagedExecutable
+      ? []
+      : [path.join(root, 'release/app')];
   const env = {
     ...process.env,
-    NODE_ENV: 'production',
+    NODE_ENV: development ? 'development' : 'production',
+    ...(development ? { PORT: process.env.PORT || '4318' } : {}),
     EMULATION_SMOKE_DIR: directory,
   };
   delete env.ELECTRON_RUN_AS_NODE;
@@ -28,6 +36,7 @@ async function run() {
     cwd: root,
     env,
     stdio: ['ignore', 'pipe', 'pipe'],
+    detached: true,
   });
   const append = (chunk) => {
     output = (output + chunk.toString()).slice(-16000);
@@ -36,7 +45,14 @@ async function run() {
   child.stderr.on('data', append);
   const timer = setTimeout(() => {
     timedOut = true;
-    child.kill('SIGKILL');
+    // Kill only this runner's process group, including its dev server and app.
+    if (child.pid) {
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        /* Already exited. */
+      }
+    }
   }, 45000);
   let code;
   try {
@@ -96,7 +112,7 @@ async function run() {
     }
   }
   console.log(
-    `macOS ${packagedExecutable ? 'packaged' : 'production'} smoke passed. Report: ${reportPath}`,
+    `macOS ${development ? 'development' : packagedExecutable ? 'packaged' : 'production'} smoke passed. Report: ${reportPath}`,
   );
 }
 
