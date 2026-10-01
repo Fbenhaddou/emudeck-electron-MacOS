@@ -1,3 +1,2 @@
-/* eslint import/no-unresolved: off, import/no-self-import: off */
-
-module.exports = require('./webpack.config.renderer.dev').default || require('./webpack.config.renderer.dev');
+// Import resolution must never start a build or install dependencies.
+module.exports = require('./webpack.config.base');

@@ -56,7 +56,8 @@ export async function selectLibrary(
   const canonical = await fs.realpath(selected);
   if (!(await fs.stat(canonical)).isDirectory())
     throw new Error('Choose a folder.');
-  await fs.access(canonical, constants.R_OK | constants.W_OK);
+  await fs.access(canonical, constants.R_OK);
+  await fs.access(canonical, constants.W_OK);
   // Refuse to replace unknown settings, directories or symlinks.
   await readLibrary(statePath);
   const state: SavedLibrary = {

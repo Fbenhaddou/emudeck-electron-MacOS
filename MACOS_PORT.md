@@ -26,3 +26,12 @@ Observed host: ARM64, macOS 27.0 build 26A428, Node 24.19.0, npm 11.17.0, instal
 9. Only then expand management UI and emulator count; run visual, security and clean-environment gauntlets.
 
 Signing, notarization, fresh-user/reboot tests, physically disconnected storage and DualSense tests must be reported separately. Never infer them from a webpack success.
+
+## Verified implementation checkpoint (2026-10-02)
+
+- `npm start` routes to the bounded Mac build on Darwin; `PORT=4318 node .erb/scripts/smoke-macos.js --dev` passes real preload/status/security checks. Production/default webpack eval bundling was inappropriate for sandboxed development preload; explicit source maps fix it without relaxing CSP. Main/preload edits require restarting the dev process; renderer recompilation is automatic (refresh the window to display it).
+- `npm run build:macos` and `npm run package:macos` succeed using installed native Electron. Packaged smoke passed at `emulation-smoke-KHN26v/report.json` in the host temporary directory, with light/dark/small captures. This is unsigned development packaging, not distributable notarization.
+- `npm run build:legacy` still succeeds. Explicit Windows/Linux scripts select that build regardless of host OS. Existing CI remains; a separate macos-15 ARM64 smoke workflow was added but has not run remotely.
+- Dependency postinstall no longer asks Electron Builder to run a nested install for an empty production dependency manifest. Lint's webpack resolver is side-effect-free. Full legacy lint now reaches its pre-existing debt (thousands of findings), rather than failing in dependency setup; new Mac code has a separate gate.
+- Scoped Mac typecheck uses strict source checking with skipLibCheck only for third-party declaration incompatibilities (@types/node17 versus TypeScript5.9). This does not repair the legacy whole-repository typecheck. Existing ts-jest28 warns about TypeScript5.9; upgrading that test stack remains work.
+- No submodule pointer or baseline tag changed. No reference files copied or modified.

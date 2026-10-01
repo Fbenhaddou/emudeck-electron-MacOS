@@ -1,5 +1,6 @@
 module.exports = {
   extends: 'erb',
+  plugins: ['@typescript-eslint'],
   rules: {
     // A temporary hack related to IDE not resolving correct package.json
     'import/no-extraneous-dependencies': 'off',
@@ -13,6 +14,29 @@ module.exports = {
     'no-shadow': 'off',
     'react/no-unescaped-entities': 'off',
   },
+  overrides: [
+    {
+      files: [
+        'src/main/macos/**/*.ts',
+        'src/main/components/**/*.ts',
+        'src/shared/**/*.ts',
+        'src/renderer/macos/**/*.tsx',
+      ],
+      rules: {
+        // TypeScript checks these more accurately for type-only declarations.
+        'no-undef': 'off',
+        'no-unused-vars': 'off',
+        '@typescript-eslint/no-unused-vars': 'error',
+        'import/extensions': [
+          'error',
+          'ignorePackages',
+          { ts: 'never', tsx: 'never' },
+        ],
+        'react/jsx-filename-extension': ['error', { extensions: ['.tsx'] }],
+        'no-void': ['error', { allowAsStatement: true }],
+      },
+    },
+  ],
   parserOptions: {
     ecmaVersion: 2020,
     sourceType: 'module',

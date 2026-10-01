@@ -1,0 +1,33 @@
+name: macOS ARM64 smoke
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  macos:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck:macos
+      - run: npm run lint:macos
+      - run: npm run test:macos
+      - run: npm run build:macos
+      - run: npm run smoke:macos
+      - run: npm run package:macos
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - run: npm run smoke:macos -- 'release/build-macos/mac-arm64/Emulation Workspace.app/Contents/MacOS/Emulation Workspace'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-build
+          path: release/build-macos
+          retention-days: 7

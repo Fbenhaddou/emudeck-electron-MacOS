@@ -18,7 +18,7 @@ if (process.env.NODE_ENV === 'production') {
 
 const port = process.env.PORT || 1212;
 const manifest = path.resolve(webpackPaths.dllPath, 'renderer.json');
-const requiredByDLLConfig = module.parent.filename.includes(
+const requiredByDLLConfig = (module.parent?.filename || '').includes(
   'webpack.config.renderer.dev.dll'
 );
 
@@ -34,7 +34,7 @@ if (
       'The DLL files are missing. Sit back while we build them for you with "npm run build-dll"'
     )
   );
-  require('child_process').execSync('npm run postinstall');
+  require('child_process').execSync('npm run build:dll');
 }
 
 const configuration = {
