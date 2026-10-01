@@ -5,6 +5,7 @@ import MacApp from '../MacApp';
 import type { MacStatus } from '../../../shared/macos';
 
 const status: MacStatus = {
+  dolphin: { version: null, operation: 'idle' },
   appVersion: 'test',
   platform: 'darwin',
   architecture: 'arm64',
@@ -21,6 +22,9 @@ const status: MacStatus = {
 };
 beforeEach(() => {
   window.mac = {
+    installDolphin: jest.fn().mockResolvedValue({ ok: true }),
+    playGame: jest.fn().mockResolvedValue({ ok: true }),
+    resetDolphin: jest.fn().mockResolvedValue({ ok: true }),
     getStatus: jest.fn().mockResolvedValue(status),
     chooseLibrary: jest
       .fn()

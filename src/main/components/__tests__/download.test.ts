@@ -148,6 +148,7 @@ test('bundle verification uses identity, ARM64, codesign and Gatekeeper in order
     '/usr/bin/plutil',
     '/usr/bin/lipo',
     '/usr/bin/codesign',
+    '/usr/bin/codesign',
     '/usr/sbin/spctl',
   ]);
   await expect(
@@ -198,8 +199,15 @@ describe('transactional installation with injected tools', () => {
         }
         if (binary.endsWith('lipo')) return 'x86_64 arm64';
         if (binary.endsWith('codesign')) {
-          expect(args).toContain('-R');
-          expect(args.join(' ')).toContain('97835T4369');
+          if (args.includes('--deep')) {
+            expect(args).not.toContain('-R');
+            expect(args).toContain('--strict');
+          } else {
+            expect(args).toContain('-R');
+            expect(args[args.indexOf('-R') + 1]).toBe(
+              '=anchor apple generic and identifier "org.dolphin-emu.dolphin" and certificate leaf[subject.OU] = "97835T4369"',
+            );
+          }
         }
         if (binary.endsWith('spctl') && rejectVerification)
           throw new Error('Not trusted');

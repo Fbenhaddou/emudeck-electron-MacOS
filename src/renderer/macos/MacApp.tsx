@@ -6,9 +6,10 @@ declare global {
     mac: MacAPI;
   }
 }
-type Page = 'Library' | 'This Mac' | 'Development';
+type Page = 'Library' | 'Emulators' | 'This Mac' | 'Development';
 const icons: Record<Page, string> = {
   Library: 'M3 7V5h6l2 2h10v13H3V7Z',
+  Emulators: 'M6 7h12l3 10-3 2-4-4h-4l-4 4-3-2L6 7Zm1 4h4m-2-2v4m7-3h.1m2 2h.1',
   'This Mac': 'M3 4h18v13H3V4ZM8 21h8m-4-4v4',
   Development: 'M8 5 2 12l6 7m8-14 6 7-6 7M14 3l-4 18',
 };
@@ -55,37 +56,63 @@ export default function MacApp() {
       );
     }
   };
+  const operate = async (
+    operation: () => Promise<{ ok: boolean; error?: string }>,
+  ) => {
+    setBusy(true);
+    setError('');
+    const timer = window.setInterval(() => {
+      void refresh();
+    }, 1000);
+    try {
+      const result = await operation();
+      if (!result.ok)
+        setError(result.error || 'The operation could not finish.');
+    } catch {
+      setError(
+        'The operation could not finish. Your games and saves have been preserved.',
+      );
+    } finally {
+      window.clearInterval(timer);
+      setBusy(false);
+      await refresh();
+    }
+  };
+  const emulatorBusy =
+    busy || Boolean(status && status.dolphin.operation !== 'idle');
   const chooseLabel = busy ? 'Choosing…' : 'Choose Folder…';
   return (
     <div className="workspace" data-ready={status ? 'true' : 'false'}>
       <aside className="sidebar" aria-label="Workspace navigation">
         <div className="sidebar-title">Emulation Workspace</div>
         <nav>
-          {(['Library', 'This Mac', 'Development'] as Page[]).map((item) => (
-            <button
-              type="button"
-              key={item}
-              aria-current={page === item ? 'page' : undefined}
-              onClick={() => {
-                setPage(item);
-                setError('');
-              }}
-            >
-              <span className="nav-symbol" aria-hidden="true">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.6"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                >
-                  <path d={icons[item]} />
-                </svg>
-              </span>
-              {item}
-            </button>
-          ))}
+          {(['Library', 'Emulators', 'This Mac', 'Development'] as Page[]).map(
+            (item) => (
+              <button
+                type="button"
+                key={item}
+                aria-current={page === item ? 'page' : undefined}
+                onClick={() => {
+                  setPage(item);
+                  setError('');
+                }}
+              >
+                <span className="nav-symbol" aria-hidden="true">
+                  <svg
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d={icons[item]} />
+                  </svg>
+                </span>
+                {item}
+              </button>
+            ),
+          )}
         </nav>
         <div className="sidebar-footer">
           Development Preview
@@ -193,7 +220,101 @@ export default function MacApp() {
                     stay where they are.
                   </p>
                   <p className="preview-note">
-                    Emulator installation is not available in this preview.
+                    Select Emulators to install Dolphin for GameCube.
+                  </p>
+                </>
+              )}
+              {page === 'Emulators' && (
+                <>
+                  <h1>Emulators</h1>
+                  <p className="intro">
+                    Dolphin brings GameCube games and homebrew to your Mac. Add
+                    your own legally obtained games.
+                  </p>
+                  <section
+                    className="settings-group"
+                    aria-label="Dolphin management"
+                  >
+                    <div className="setting-row">
+                      <div>
+                        <h2>Dolphin · GameCube</h2>
+                        <p>
+                          {status.dolphin.version
+                            ? `Version ${status.dolphin.version} installed`
+                            : 'Official Universal build · Native Apple Silicon'}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={emulatorBusy || !status.library?.available}
+                        onClick={() => {
+                          void operate(() => window.mac.installDolphin());
+                        }}
+                      >
+                        {status.dolphin.version
+                          ? 'Check for Update'
+                          : 'Install Dolphin'}
+                      </button>
+                    </div>
+                    {status.dolphin.version && (
+                      <div className="setting-row">
+                        <div>
+                          <h2>Play a game</h2>
+                          <p>
+                            Add GameCube games to your library’s roms/gc folder.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={emulatorBusy || !status.library?.available}
+                          onClick={() => {
+                            void operate(() => window.mac.playGame());
+                          }}
+                        >
+                          Choose Game…
+                        </button>
+                      </div>
+                    )}
+                  </section>
+                  {!status.library?.available && (
+                    <p className="footnote">
+                      Choose an available library in Library to continue.
+                    </p>
+                  )}
+                  {emulatorBusy && (
+                    <p role="status" className="footnote">
+                      {status.dolphin.operation === 'running'
+                        ? 'Dolphin is running. Quit the game to return here.'
+                        : 'Working… Downloads and macOS verification may take a few minutes.'}
+                    </p>
+                  )}
+                  <p className="footnote">
+                    Downloads come from Dolphin’s official release server. macOS
+                    verifies the application before it is installed.
+                  </p>
+                  {status.dolphin.version && (
+                    <details className="advanced">
+                      <summary>Advanced</summary>
+                      <p>
+                        Reset emulator settings while keeping games, memory
+                        cards, and save states. Existing settings are kept in a
+                        backup folder.
+                      </p>
+                      <button
+                        type="button"
+                        disabled={emulatorBusy || !status.library?.available}
+                        onClick={() => {
+                          void operate(() => window.mac.resetDolphin());
+                        }}
+                      >
+                        Reset Dolphin Settings…
+                      </button>
+                    </details>
+                  )}
+                  <p className="preview-note">
+                    Console Mode and controller configuration are still in
+                    development.
                   </p>
                 </>
               )}
@@ -252,8 +373,8 @@ export default function MacApp() {
                       <dd>Available</dd>
                     </div>
                     <div>
-                      <dt>Emulator installation</dt>
-                      <dd>In development</dd>
+                      <dt>Dolphin installation</dt>
+                      <dd>Preview</dd>
                     </div>
                     <div>
                       <dt>Console Mode · ES-DE</dt>

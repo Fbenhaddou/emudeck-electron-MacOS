@@ -291,3 +291,16 @@ h1 {
     padding-left: 26px;
   }
 }
+.advanced {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+.advanced summary {
+  font-weight: 600;
+  cursor: default;
+}
+.advanced p {
+  color: var(--muted);
+  max-width: 500px;
+}

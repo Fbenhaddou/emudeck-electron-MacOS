@@ -19,6 +19,9 @@ import type {
   LibraryResult,
   MacStatus,
 } from '../../shared/macos';
+import { ComponentManager } from './component-manager';
+import { prepareDolphinLibrary } from './dolphin-library';
+import { dolphin } from '../components/dolphin';
 import { readLibrary, selectLibrary } from './library';
 import { acceptsEmptyArguments, isTrustedDocument } from './security';
 
@@ -49,6 +52,18 @@ const rendererURL =
     : pathToFileURL(path.join(__dirname, '../renderer/index.html')).href;
 let mainWindow: BrowserWindow | null = null;
 let choosingLibrary = false;
+const manager = new ComponentManager(
+  path.join(app.getPath('userData'), 'components', 'dolphin'),
+  () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  },
+);
+async function availableLibrary(): Promise<string> {
+  const library = await readLibrary(statePath);
+  if (!library?.available) throw new Error('Library unavailable');
+  return library.path;
+}
 
 function validateCaller(event: IpcMainInvokeEvent, args: unknown[]): void {
   if (
@@ -72,6 +87,7 @@ async function getStatus(): Promise<MacStatus> {
       'Library settings could not be read. Existing files have been preserved.';
   }
   return {
+    dolphin: await manager.status(),
     appVersion: app.getVersion(),
     platform: 'darwin',
     architecture: process.arch,
@@ -95,6 +111,110 @@ async function getStatus(): Promise<MacStatus> {
   };
 }
 
+ipcMain.handle(
+  'mac:install-dolphin',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args);
+    try {
+      const library = await availableLibrary();
+      await manager.install();
+      if ((await availableLibrary()) !== library)
+        throw new Error('Library changed');
+      await prepareDolphinLibrary(library);
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        error:
+          'Dolphin could not be installed or configured. Check your connection and library drive. Installation requires an official ARM64 build accepted by macOS security checks; existing games and saves are preserved.',
+      };
+    }
+  },
+);
+ipcMain.handle(
+  'mac:play-game',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args);
+    if (choosingLibrary || manager.isBusy)
+      return {
+        ok: false,
+        error: 'Finish the current operation or quit the game first.',
+      };
+    choosingLibrary = true;
+    try {
+      const library = await availableLibrary();
+      const choice = await dialog.showOpenDialog(mainWindow!, {
+        title: 'Choose a GameCube Game',
+        buttonLabel: 'Play',
+        defaultPath: dolphin.paths(library).roms,
+        properties: ['openFile'],
+        filters: [
+          {
+            name: 'GameCube games and homebrew',
+            extensions: dolphin.manifest.romExtensions.map((extension) =>
+              extension.slice(1),
+            ),
+          },
+        ],
+      });
+      if (choice.canceled) return { ok: true };
+      if (
+        choice.filePaths.length !== 1 ||
+        (await availableLibrary()) !== library
+      )
+        throw new Error('Library changed');
+      await manager.launch(library, choice.filePaths[0]);
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        error:
+          'The game could not start. Choose a supported file inside this library’s roms/gc folder, check the drive is connected, and verify Dolphin is installed.',
+      };
+    } finally {
+      choosingLibrary = false;
+    }
+  },
+);
+ipcMain.handle(
+  'mac:reset-dolphin',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args);
+    if (choosingLibrary || manager.isBusy)
+      return {
+        ok: false,
+        error:
+          'Quit the game and finish the current operation before resetting settings.',
+      };
+    choosingLibrary = true;
+    try {
+      const library = await availableLibrary();
+      const choice = await dialog.showMessageBox(mainWindow!, {
+        type: 'question',
+        message: 'Reset Dolphin settings?',
+        detail:
+          'Your current settings will be kept in a dated backup folder. Games, memory cards, and save states will stay in place.',
+        buttons: ['Cancel', 'Reset Settings'],
+        defaultId: 0,
+        cancelId: 0,
+      });
+      if (choice.response !== 1) return { ok: true };
+      if ((await availableLibrary()) !== library)
+        throw new Error('Library changed');
+      await manager.reset(library);
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        error:
+          'Settings could not be reset. Any original settings are preserved in the Dolphin User folder or its Config.backup folder. Games and saves have not been removed.',
+      };
+    } finally {
+      choosingLibrary = false;
+    }
+  },
+);
+
 ipcMain.handle('mac:status', async (event, ...args) => {
   validateCaller(event, args);
   return getStatus();
@@ -103,7 +223,7 @@ ipcMain.handle(
   'mac:choose-library',
   async (event, ...args): Promise<LibraryResult> => {
     validateCaller(event, args);
-    if (choosingLibrary)
+    if (choosingLibrary || manager.isBusy)
       return { ok: false, error: 'A folder chooser is already open.' };
     choosingLibrary = true;
     try {

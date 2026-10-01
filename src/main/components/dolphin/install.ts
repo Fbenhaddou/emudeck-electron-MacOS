@@ -60,12 +60,14 @@ export async function verifyBundle(
     .split(/\s+/);
   if (!architectures.includes('arm64'))
     throw new Error('Dolphin has no native Apple Silicon executable');
+  // Nested frameworks have their own identifiers; validate every seal first.
+  await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle]);
+  // The leading '=' selects inline requirement syntax instead of a filename.
   await run('/usr/bin/codesign', [
     '--verify',
-    '--deep',
     '--strict',
     '-R',
-    'anchor apple generic and identifier "org.dolphin-emu.dolphin" and certificate leaf[subject.OU] = "97835T4369"',
+    '=anchor apple generic and identifier "org.dolphin-emu.dolphin" and certificate leaf[subject.OU] = "97835T4369"',
     bundle,
   ]);
   await run('/usr/sbin/spctl', [

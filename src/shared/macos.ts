@@ -3,7 +3,13 @@ export interface LibraryInfo {
   available: boolean;
 }
 
+export interface DolphinStatus {
+  version: string | null;
+  operation: 'idle' | 'installing' | 'launching' | 'running' | 'resetting';
+}
+
 export interface MacStatus {
+  dolphin: DolphinStatus;
   appVersion: string;
   platform: 'darwin';
   architecture: string;
@@ -34,4 +40,7 @@ export interface MacAPI {
   getStatus(): Promise<MacStatus>;
   chooseLibrary(): Promise<LibraryResult>;
   revealLibrary(): Promise<ActionResult>;
+  installDolphin(): Promise<ActionResult>;
+  playGame(): Promise<ActionResult>;
+  resetDolphin(): Promise<ActionResult>;
 }

@@ -7,6 +7,7 @@ interface SavedLibrary {
   format: 'emulation-workspace-library';
   version: 1;
   path: string;
+  identity?: { device: string; inode: string };
 }
 
 function validState(value: unknown): value is SavedLibrary {
@@ -39,7 +40,13 @@ export async function readLibrary(
   if (!validState(state))
     throw new Error('Library settings have an unsupported format.');
   const available = await fs.stat(state.path).then(
-    (stat) => stat.isDirectory(),
+    (stat) =>
+      stat.isDirectory() &&
+      Boolean(
+        state.identity &&
+        state.identity.device === String(stat.dev) &&
+        state.identity.inode === String(stat.ino),
+      ),
     () => false,
   );
   return { path: state.path, available };
@@ -64,6 +71,10 @@ export async function selectLibrary(
     format: 'emulation-workspace-library',
     version: 1,
     path: canonical,
+    identity: {
+      device: String((await fs.stat(canonical)).dev),
+      inode: String((await fs.stat(canonical)).ino),
+    },
   };
   await fs.mkdir(path.dirname(statePath), { recursive: true, mode: 0o700 });
   const temporary = `${statePath}.${process.pid}.${Date.now()}.tmp`;
