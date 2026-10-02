@@ -63,7 +63,10 @@ export async function ensureDirectory(
 
 // Dolphin's Metal/VideoBackend.h names this backend Metal; MainSettings.cpp
 // defines GFXBackend in Core. Leave all other upstream defaults untouched.
-const defaults = '[Core]\nGFXBackend = Metal\n';
+// The managed preview opts out of emulator analytics explicitly. PermissionAsked
+// suppresses an unrelated first-run prompt; it never enables collection.
+const defaults =
+  '[Core]\nGFXBackend = Metal\n[Analytics]\nEnabled = False\nPermissionAsked = True\n';
 async function prepare(root: string): Promise<void> {
   const directories = dolphin.paths(root);
   // eslint-disable-next-line no-restricted-syntax -- Avoid concurrent traversal of shared ancestors.

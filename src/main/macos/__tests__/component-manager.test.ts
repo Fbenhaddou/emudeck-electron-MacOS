@@ -5,6 +5,10 @@ import { ChildProcess, spawn } from 'child_process';
 import { ComponentManager } from '../component-manager';
 import { installDolphin } from '../../components/dolphin/install';
 
+jest.mock('../processes', () => ({
+  hasManagedDolphin: jest.fn(async () => false),
+}));
+
 describe('component manager operation and installation boundaries', () => {
   let root: string;
   let child: ChildProcess;
@@ -93,10 +97,15 @@ describe('component manager operation and installation boundaries', () => {
   it('blocks reset and launch during release discovery and unlocks on failure', async () => {
     const deps = dependencies();
     let rejectDiscovery!: (error: Error) => void;
+    let discoveryStarted!: () => void;
+    const discoveryReady = new Promise<void>((resolve) => {
+      discoveryStarted = resolve;
+    });
     deps.discoverRelease.mockImplementation(
       () =>
         new Promise((_resolve, reject) => {
           rejectDiscovery = reject;
+          discoveryStarted();
         }),
     );
     const manager = new ComponentManager(root, jest.fn(), deps);
@@ -104,6 +113,7 @@ describe('component manager operation and installation boundaries', () => {
     expect(manager.isBusy).toBe(true);
     await expect(manager.reset(root)).rejects.toThrow('active');
     await expect(manager.launch(root, '/game.dol')).rejects.toThrow('active');
+    await discoveryReady;
     rejectDiscovery(new Error('offline'));
     await expect(installation).rejects.toThrow('offline');
     expect(manager.isBusy).toBe(false);
@@ -128,7 +138,9 @@ describe('component manager operation and installation boundaries', () => {
     const deps = dependencies();
     const manager = new ComponentManager(root, jest.fn(), deps);
     await manager.install();
-    expect(deps.verifyBundle).toHaveBeenCalledWith(bundle);
+    expect(deps.verifyBundle).toHaveBeenCalledWith(bundle, undefined, {
+      version: '2609',
+    });
     expect(deps.installDolphin).not.toHaveBeenCalled();
   });
 
@@ -164,13 +176,19 @@ describe('component manager operation and installation boundaries', () => {
     ).rejects.toThrow('spawn failed');
     expect(manager.isBusy).toBe(false);
     let completeReset!: (value: { backupPath: string }) => void;
+    let resetStarted!: () => void;
+    const resetReady = new Promise<void>((resolve) => {
+      resetStarted = resolve;
+    });
     deps.resetDolphinConfiguration.mockImplementation(
       () =>
         new Promise((resolve) => {
           completeReset = resolve;
+          resetStarted();
         }),
     );
     const reset = manager.reset(root);
+    await resetReady;
     child.emit('exit', 1);
     expect(manager.isBusy).toBe(true);
     await expect(manager.install()).rejects.toThrow('active');
@@ -203,6 +221,78 @@ describe('component manager operation and installation boundaries', () => {
     deps.resetDolphinConfiguration.mockRejectedValue(failure);
     const manager = new ComponentManager(root, jest.fn(), deps);
     await expect(manager.reset(root)).rejects.toBe(failure);
+    expect(manager.isBusy).toBe(false);
+  });
+
+  it('recovers a surviving managed game after an application restart', async () => {
+    await receipt();
+    let running = true;
+    const probe = jest.fn(async () => running);
+    const deps = dependencies();
+    const restarted = new ComponentManager(root, jest.fn(), deps, probe);
+    expect((await restarted.status()).operation).toBe('running');
+    expect(restarted.isBusy).toBe(true);
+    await expect(restarted.reset(root)).rejects.toThrow('still active');
+    await expect(restarted.install()).rejects.toThrow('still active');
+    await expect(
+      restarted.launch(root, path.join(root, 'roms/gc/legal.dol')),
+    ).rejects.toThrow('still active');
+    expect(deps.resetDolphinConfiguration).not.toHaveBeenCalled();
+    expect(deps.spawn).not.toHaveBeenCalled();
+    running = false;
+    expect((await restarted.status()).operation).toBe('idle');
+    await restarted.reset(root);
+    expect(deps.resetDolphinConfiguration).toHaveBeenCalledTimes(1);
+  });
+
+  it('fails closed when process inspection is unavailable', async () => {
+    const deps = dependencies();
+    const manager = new ComponentManager(root, jest.fn(), deps, async () => {
+      throw new Error('process inspection unavailable');
+    });
+    await expect(manager.reset(root)).rejects.toThrow('inspection unavailable');
+    await expect(manager.install()).rejects.toThrow('inspection unavailable');
+    expect(deps.resetDolphinConfiguration).not.toHaveBeenCalled();
+    expect(deps.discoverRelease).not.toHaveBeenCalled();
+  });
+
+  it('matches surviving executables through a canonical macOS path alias', async () => {
+    const realParent = path.join(root, 'real');
+    const realRoot = path.join(realParent, 'dolphin');
+    await fs.mkdir(realRoot, { recursive: true });
+    const alias = path.join(root, 'alias');
+    await fs.symlink(realParent, alias);
+    const deps = dependencies();
+    const probe = jest.fn(async (candidate: string) => candidate === realRoot);
+    const manager = new ComponentManager(
+      path.join(alias, 'dolphin'),
+      jest.fn(),
+      deps,
+      probe,
+    );
+    expect((await manager.status()).operation).toBe('running');
+    await expect(manager.reset(root)).rejects.toThrow('still active');
+    expect(deps.resetDolphinConfiguration).not.toHaveBeenCalled();
+    expect(probe).toHaveBeenCalledWith(realRoot);
+  });
+
+  it('rechecks the selected drive after bundle verification, before preparing or spawning', async () => {
+    await receipt();
+    const deps = dependencies();
+    const manager = new ComponentManager(
+      root,
+      jest.fn(),
+      deps,
+      async () => false,
+      async () => {
+        throw new Error('drive replaced');
+      },
+    );
+    await expect(
+      manager.launch(root, path.join(root, 'roms/gc/legal.dol')),
+    ).rejects.toThrow('drive replaced');
+    expect(deps.prepareDolphinLibrary).not.toHaveBeenCalled();
+    expect(deps.spawn).not.toHaveBeenCalled();
     expect(manager.isBusy).toBe(false);
   });
 });

@@ -10,6 +10,7 @@ import {
   validateGame,
 } from './dolphin-library';
 import type { DolphinResetResult } from './dolphin-library';
+import { hasManagedDolphin } from './processes';
 
 const defaultDependencies = {
   discoverRelease,
@@ -32,12 +33,18 @@ export class ComponentManager {
 
   private child: ChildProcess | null = null;
 
+  private externalSession = false;
+
   // TypeScript parameter properties initialize the manager's dependencies.
   // eslint-disable-next-line no-useless-constructor
   constructor(
     private readonly installRoot: string,
     private readonly onExit: () => void,
     private readonly dependencies = defaultDependencies,
+    private readonly processProbe = hasManagedDolphin,
+    private readonly assertLibrary: (
+      root: string,
+    ) => Promise<void> = async () => undefined,
   ) {
     /* Parameter properties own initialization. */
   }
@@ -96,20 +103,41 @@ export class ComponentManager {
   /* eslint-enable no-continue, no-await-in-loop */
 
   async status(): Promise<DolphinStatus> {
+    if (!this.child)
+      this.externalSession = await this.processProbe(await this.root());
     return {
       version: (await this.installed())?.version || null,
-      operation: this.operation,
+      operation:
+        this.operation === 'idle' && this.externalSession
+          ? 'running'
+          : this.operation,
     };
   }
 
+  /** Claim synchronously before the first await; reconcile surviving games after a crash. */
+  private async begin(operation: DolphinStatus['operation']): Promise<void> {
+    if (this.operation !== 'idle' || this.child)
+      throw new Error('Another emulator operation is active');
+    this.operation = operation;
+    try {
+      this.externalSession = await this.processProbe(await this.root());
+      if (this.externalSession)
+        throw new Error('A managed Dolphin game is still active');
+    } catch (error) {
+      this.operation = 'idle';
+      throw error;
+    }
+  }
+
   async install(): Promise<void> {
-    if (this.isBusy) throw new Error('Another emulator operation is active');
-    this.operation = 'installing';
+    await this.begin('installing');
     try {
       const release = await this.dependencies.discoverRelease();
       const current = await this.installed();
       if (current?.version === release.version) {
-        await this.dependencies.verifyBundle(current.bundle);
+        await this.dependencies.verifyBundle(current.bundle, undefined, {
+          version: current.version,
+        });
         return;
       }
       await this.dependencies.installDolphin(release, await this.root());
@@ -119,9 +147,9 @@ export class ComponentManager {
   }
 
   async reset(library: string): Promise<DolphinResetResult> {
-    if (this.isBusy) throw new Error('Another emulator operation is active');
-    this.operation = 'resetting';
+    await this.begin('resetting');
     try {
+      await this.assertLibrary(library);
       return await this.dependencies.resetDolphinConfiguration(library);
     } finally {
       this.operation = 'idle';
@@ -129,14 +157,17 @@ export class ComponentManager {
   }
 
   async launch(library: string, game: string): Promise<void> {
-    if (this.isBusy) throw new Error('Another emulator operation is active');
-    this.operation = 'launching';
+    await this.begin('launching');
     try {
       const installed = await this.installed();
       if (!installed) throw new Error('Install Dolphin first');
-      await this.dependencies.verifyBundle(installed.bundle);
+      await this.dependencies.verifyBundle(installed.bundle, undefined, {
+        version: installed.version,
+      });
+      await this.assertLibrary(library);
       await this.dependencies.prepareDolphinLibrary(library);
       const rom = await this.dependencies.validateGame(library, game);
+      await this.assertLibrary(library);
       const plan = dolphin.planLaunch({
         libraryRoot: library,
         appBundlePath: installed.bundle,
@@ -169,6 +200,8 @@ export class ComponentManager {
   }
 
   get isBusy(): boolean {
-    return this.operation !== 'idle' || this.child !== null;
+    return (
+      this.operation !== 'idle' || this.child !== null || this.externalSession
+    );
   }
 }
