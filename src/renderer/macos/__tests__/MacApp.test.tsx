@@ -1,6 +1,12 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import MacApp from '../MacApp';
 import type { MacStatus } from '../../../shared/macos';
 
@@ -25,12 +31,16 @@ beforeEach(() => {
     installDolphin: jest.fn().mockResolvedValue({ ok: true }),
     playGame: jest.fn().mockResolvedValue({ ok: true }),
     resetDolphin: jest.fn().mockResolvedValue({ ok: true }),
+    recoverLibrarySettings: jest.fn().mockResolvedValue({ ok: true }),
     getStatus: jest.fn().mockResolvedValue(status),
     chooseLibrary: jest
       .fn()
       .mockResolvedValue({ ok: false, cancelled: true, error: 'Cancelled' }),
     revealLibrary: jest.fn().mockResolvedValue({ ok: true }),
   };
+});
+afterEach(() => {
+  jest.useRealTimers();
 });
 it('loads status from the narrow API and leaves cancelled selection unchanged', async () => {
   render(<MacApp />);
@@ -64,6 +74,111 @@ it('reports IPC failure and does not mark an error screen ready', async () => {
     'Could not read application status',
   );
   expect(container.querySelector('[data-ready="true"]')).toBeNull();
+  expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
+  expect(screen.queryByText('Reading your Mac…')).toBeNull();
+});
+it('starts a newly selected page at the top without moving content on status refresh', async () => {
+  render(<MacApp />);
+  await screen.findByRole('button', { name: 'Choose Folder…' });
+  const main = screen.getByRole('main');
+  main.scrollTop = 240;
+  fireEvent.click(screen.getByRole('button', { name: 'Emulators' }));
+  expect(main.scrollTop).toBe(0);
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+    'Emulators',
+  );
+  main.scrollTop = 120;
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+  await waitFor(() => expect(window.mac.getStatus).toHaveBeenCalledTimes(2));
+  expect(main.scrollTop).toBe(120);
+});
+it('clears a status-read error when Refresh succeeds', async () => {
+  window.mac.getStatus = jest
+    .fn()
+    .mockRejectedValueOnce(new Error('temporarily unavailable'))
+    .mockResolvedValue(status);
+  render(<MacApp />);
+  expect(await screen.findByRole('alert')).toHaveTextContent(
+    'Could not read application status',
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
+  await screen.findByRole('button', { name: 'Choose Folder…' });
+  expect(screen.queryByRole('alert')).toBeNull();
+});
+it('recovers malformed settings and returns to folder selection', async () => {
+  window.mac.getStatus = jest
+    .fn()
+    .mockResolvedValueOnce({
+      ...status,
+      libraryError:
+        'Library settings could not be read. Existing files have been preserved.',
+    })
+    .mockResolvedValue(status);
+  render(<MacApp />);
+  const recover = await screen.findByRole('button', {
+    name: 'Recover Library Settings…',
+  });
+  expect(screen.getByRole('button', { name: 'Choose Folder…' })).toBeDisabled();
+  fireEvent.click(recover);
+  await waitFor(() =>
+    expect(window.mac.recoverLibrarySettings).toHaveBeenCalledTimes(1),
+  );
+  await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+  expect(screen.getByRole('button', { name: 'Choose Folder…' })).toBeEnabled();
+  expect(
+    screen.queryByRole('button', { name: 'Recover Library Settings…' }),
+  ).toBeNull();
+  expect(screen.getByText('No folder selected')).toBeInTheDocument();
+});
+it('recovers controls when a running game exits and stops polling when idle', async () => {
+  jest.useFakeTimers();
+  const installed: MacStatus = {
+    ...status,
+    dolphin: { version: '2509', operation: 'idle' },
+    library: { path: '/Volumes/Game Library', available: true },
+  };
+  const getStatus = jest
+    .fn()
+    .mockResolvedValueOnce(installed)
+    .mockResolvedValueOnce({
+      ...installed,
+      dolphin: { version: '2509', operation: 'running' },
+    })
+    .mockResolvedValue(installed);
+  window.mac.getStatus = getStatus;
+  render(<MacApp />);
+  await screen.findByRole('button', { name: 'Change…' });
+  fireEvent.click(screen.getByRole('button', { name: 'Emulators' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Choose Game…' }));
+  await screen.findByText('Dolphin is running. Quit the game to return here.');
+  expect(screen.getByRole('button', { name: 'Choose Game…' })).toBeDisabled();
+  await act(async () => {
+    jest.advanceTimersByTime(1000);
+  });
+  expect(screen.getByRole('button', { name: 'Choose Game…' })).toBeEnabled();
+  expect(screen.queryByText(/Dolphin is running/)).toBeNull();
+  const callsAfterExit = getStatus.mock.calls.length;
+  await act(async () => {
+    jest.advanceTimersByTime(5000);
+  });
+  expect(getStatus).toHaveBeenCalledTimes(callsAfterExit);
+});
+it('cleans up active-game polling when the window is unmounted', async () => {
+  jest.useFakeTimers();
+  const getStatus = jest.fn().mockResolvedValue({
+    ...status,
+    dolphin: { version: '2509', operation: 'running' },
+    library: { path: '/Volumes/Game Library', available: true },
+  });
+  window.mac.getStatus = getStatus;
+  const { unmount } = render(<MacApp />);
+  await screen.findByRole('button', { name: 'Change…' });
+  unmount();
+  const callsBeforeUnmount = getStatus.mock.calls.length;
+  await act(async () => {
+    jest.advanceTimersByTime(5000);
+  });
+  expect(getStatus).toHaveBeenCalledTimes(callsBeforeUnmount);
 });
 it('keeps future capabilities honestly labeled', async () => {
   render(<MacApp />);

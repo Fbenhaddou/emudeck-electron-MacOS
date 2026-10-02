@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MacAPI, MacStatus } from '../../shared/macos';
 
 declare global {
@@ -7,6 +7,12 @@ declare global {
   }
 }
 type Page = 'Library' | 'Emulators' | 'This Mac' | 'Development';
+type Action =
+  | 'choosing-library'
+  | 'recovering-library'
+  | 'installing'
+  | 'choosing-game'
+  | 'resetting';
 const icons: Record<Page, string> = {
   Library: 'M3 7V5h6l2 2h10v13H3V7Z',
   Emulators: 'M6 7h12l3 10-3 2-4-4h-4l-4 4-3-2L6 7Zm1 4h4m-2-2v4m7-3h.1m2 2h.1',
@@ -17,33 +23,76 @@ const icons: Record<Page, string> = {
 export default function MacApp() {
   const [status, setStatus] = useState<MacStatus | null>(null);
   const [page, setPage] = useState<Page>('Library');
-  const [busy, setBusy] = useState(false);
+  const [action, setAction] = useState<Action | null>(null);
   const [error, setError] = useState('');
-  const refresh = async () => {
-    try {
-      setStatus(await window.mac.getStatus());
-    } catch {
-      setError(
-        'Could not read application status. Quit and reopen Emulation Workspace to try again.',
-      );
-    }
-  };
-  useEffect(() => {
-    void refresh();
+  const [statusError, setStatusError] = useState('');
+  const mounted = useRef(true);
+  const mainContent = useRef<HTMLElement | null>(null);
+  const statusRequest = useRef<Promise<void> | null>(null);
+  const refresh = useCallback(() => {
+    if (statusRequest.current) return statusRequest.current;
+    const request = Promise.resolve()
+      .then(() => window.mac.getStatus())
+      .then((nextStatus) => {
+        if (mounted.current) {
+          setStatus(nextStatus);
+          setStatusError('');
+        }
+        return undefined;
+      })
+      .catch(() => {
+        if (mounted.current)
+          setStatusError(
+            'Could not read application status. Refresh to try again.',
+          );
+      })
+      .finally(() => {
+        statusRequest.current = null;
+      });
+    statusRequest.current = request;
+    return request;
   }, []);
+  useEffect(() => {
+    mounted.current = true;
+    void refresh();
+    return () => {
+      mounted.current = false;
+    };
+  }, [refresh]);
+  const busy = action !== null;
+  const dolphinOperation = status?.dolphin.operation || 'idle';
+  useEffect(() => {
+    if (!busy && dolphinOperation === 'idle') return undefined;
+    let cancelled = false;
+    let timer: number;
+    const poll = async () => {
+      await refresh();
+      if (!cancelled) timer = window.setTimeout(poll, 1000);
+    };
+    timer = window.setTimeout(poll, 1000);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [busy, dolphinOperation, refresh]);
+  const refreshAfterAction = async () => {
+    // A poll started before a mutation may contain the previous library/version.
+    if (statusRequest.current) await statusRequest.current;
+    await refresh();
+  };
   const choose = async () => {
-    setBusy(true);
+    setAction('choosing-library');
     setError('');
     try {
       const result = await window.mac.chooseLibrary();
       if (!result.ok && !result.cancelled) setError(result.error);
-      await refresh();
+      await refreshAfterAction();
     } catch {
       setError(
         'The folder could not be selected. Your existing files have been preserved.',
       );
     } finally {
-      setBusy(false);
+      setAction(null);
     }
   };
   const reveal = async () => {
@@ -57,13 +106,11 @@ export default function MacApp() {
     }
   };
   const operate = async (
+    nextAction: Action,
     operation: () => Promise<{ ok: boolean; error?: string }>,
   ) => {
-    setBusy(true);
+    setAction(nextAction);
     setError('');
-    const timer = window.setInterval(() => {
-      void refresh();
-    }, 1000);
     try {
       const result = await operation();
       if (!result.ok)
@@ -73,14 +120,31 @@ export default function MacApp() {
         'The operation could not finish. Your games and saves have been preserved.',
       );
     } finally {
-      window.clearInterval(timer);
-      setBusy(false);
-      await refresh();
+      await refreshAfterAction();
+      setAction(null);
     }
   };
   const emulatorBusy =
     busy || Boolean(status && status.dolphin.operation !== 'idle');
-  const chooseLabel = busy ? 'Choosing…' : 'Choose Folder…';
+  const choosingLibrary = action === 'choosing-library';
+  const chooseLabel = choosingLibrary ? 'Choosing…' : 'Choose Folder…';
+  const operationMessages: Record<
+    Exclude<MacStatus['dolphin']['operation'], 'idle'>,
+    string
+  > = {
+    installing:
+      'Installing Dolphin… Downloading and verifying the application may take a few minutes.',
+    launching: 'Starting your game… macOS is verifying Dolphin.',
+    running: 'Dolphin is running. Quit the game to return here.',
+    resetting: 'Resetting Dolphin settings… Games and saves stay in place.',
+  };
+  let operationMessage = '';
+  if (dolphinOperation !== 'idle')
+    operationMessage = operationMessages[dolphinOperation];
+  else if (action === 'installing' || action === 'resetting')
+    operationMessage = operationMessages[action];
+  else if (action === 'choosing-game')
+    operationMessage = 'Choose a game in the file dialog.';
   return (
     <div className="workspace" data-ready={status ? 'true' : 'false'}>
       <aside className="sidebar" aria-label="Workspace navigation">
@@ -93,6 +157,8 @@ export default function MacApp() {
                 key={item}
                 aria-current={page === item ? 'page' : undefined}
                 onClick={() => {
+                  if (page !== item && mainContent.current)
+                    mainContent.current.scrollTop = 0;
                   setPage(item);
                   setError('');
                 }}
@@ -143,14 +209,18 @@ export default function MacApp() {
             </svg>
           </button>
         </header>
-        <main id="main-content">
-          {error && (
+        <main
+          id="main-content"
+          ref={mainContent}
+          aria-busy={!status && !statusError}
+        >
+          {(error || statusError) && (
             <div className="error" role="alert">
-              {error}
+              {error || statusError}
             </div>
           )}
           {!status ? (
-            <p role="status">Reading your Mac…</p>
+            !statusError && <p role="status">Reading your Mac…</p>
           ) : (
             <>
               {page === 'Library' && (
@@ -165,23 +235,32 @@ export default function MacApp() {
                   <section
                     className="settings-group"
                     aria-label="Library location"
+                    aria-busy={choosingLibrary}
                   >
                     <div className="setting-row">
                       <div>
                         <h2>Library location</h2>
-                        <p className="path">
+                        <p className="path" title={status.library?.path}>
                           {status.library?.path || 'No folder selected'}
                         </p>
                       </div>
                       <button
                         type="button"
-                        className={status.library ? '' : 'primary'}
-                        disabled={busy}
+                        className={
+                          status.library || status.libraryError ? '' : 'primary'
+                        }
+                        disabled={
+                          busy ||
+                          dolphinOperation !== 'idle' ||
+                          Boolean(status.libraryError)
+                        }
                         onClick={() => {
                           void choose();
                         }}
                       >
-                        {status.library && !busy ? 'Change…' : chooseLabel}
+                        {status.library && !choosingLibrary
+                          ? 'Change…'
+                          : chooseLabel}
                       </button>
                     </div>
                     {status.library && (
@@ -211,9 +290,27 @@ export default function MacApp() {
                     )}
                   </section>
                   {status.libraryError && (
-                    <p role="alert" className="error">
-                      {status.libraryError}
-                    </p>
+                    <div
+                      role="alert"
+                      className="error"
+                      aria-busy={action === 'recovering-library'}
+                    >
+                      <p className="recovery-message">{status.libraryError}</p>
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={emulatorBusy}
+                        onClick={() => {
+                          void operate('recovering-library', () =>
+                            window.mac.recoverLibrarySettings(),
+                          );
+                        }}
+                      >
+                        {action === 'recovering-library'
+                          ? 'Recovering…'
+                          : 'Recover Library Settings…'}
+                      </button>
+                    </div>
                   )}
                   <p className="footnote">
                     Choosing a folder saves its location. Your games and saves
@@ -234,6 +331,11 @@ export default function MacApp() {
                   <section
                     className="settings-group"
                     aria-label="Dolphin management"
+                    aria-busy={
+                      busy ||
+                      (dolphinOperation !== 'idle' &&
+                        dolphinOperation !== 'running')
+                    }
                   >
                     <div className="setting-row">
                       <div>
@@ -249,11 +351,13 @@ export default function MacApp() {
                         className="primary"
                         disabled={emulatorBusy || !status.library?.available}
                         onClick={() => {
-                          void operate(() => window.mac.installDolphin());
+                          void operate('installing', () =>
+                            window.mac.installDolphin(),
+                          );
                         }}
                       >
                         {status.dolphin.version
-                          ? 'Check for Update'
+                          ? 'Update Dolphin'
                           : 'Install Dolphin'}
                       </button>
                     </div>
@@ -269,7 +373,9 @@ export default function MacApp() {
                           type="button"
                           disabled={emulatorBusy || !status.library?.available}
                           onClick={() => {
-                            void operate(() => window.mac.playGame());
+                            void operate('choosing-game', () =>
+                              window.mac.playGame(),
+                            );
                           }}
                         >
                           Choose Game…
@@ -282,11 +388,9 @@ export default function MacApp() {
                       Choose an available library in Library to continue.
                     </p>
                   )}
-                  {emulatorBusy && (
+                  {operationMessage && (
                     <p role="status" className="footnote">
-                      {status.dolphin.operation === 'running'
-                        ? 'Dolphin is running. Quit the game to return here.'
-                        : 'Working… Downloads and macOS verification may take a few minutes.'}
+                      {operationMessage}
                     </p>
                   )}
                   <p className="footnote">
@@ -305,7 +409,9 @@ export default function MacApp() {
                         type="button"
                         disabled={emulatorBusy || !status.library?.available}
                         onClick={() => {
-                          void operate(() => window.mac.resetDolphin());
+                          void operate('resetting', () =>
+                            window.mac.resetDolphin(),
+                          );
                         }}
                       >
                         Reset Dolphin Settings…

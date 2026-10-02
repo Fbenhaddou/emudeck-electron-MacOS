@@ -8,7 +8,7 @@
   --muted: light-dark(#66666c, #a7a7ad);
   --line: light-dark(#dedee2, #414144);
   --surface: light-dark(#fff, #2d2d30);
-  --accent: light-dark(#0067d9, #398fff);
+  --accent: light-dark(#0067d9, #0071e3);
 }
 * {
   box-sizing: border-box;
@@ -33,7 +33,8 @@ button:active {
 button:disabled {
   opacity: 0.5;
 }
-button:focus-visible {
+button:focus-visible,
+summary:focus-visible {
   outline: 3px solid var(--accent);
   outline-offset: 3px;
 }
@@ -44,6 +45,7 @@ button.primary {
 }
 .workspace {
   display: flex;
+  height: 100vh;
   min-height: 100vh;
 }
 .sidebar {
@@ -52,6 +54,8 @@ button.primary {
   flex-direction: column;
   width: 218px;
   flex: 0 0 218px;
+  max-height: 100vh;
+  overflow-y: auto;
   padding: 64px 12px 18px;
   background: light-dark(#eeedf0, #29292c);
   border-right: 1px solid var(--line);
@@ -109,9 +113,13 @@ nav button[aria-current] {
 .detail {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
 }
 .toolbar {
   height: 53px;
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -124,6 +132,10 @@ nav button[aria-current] {
   font-size: 12px;
 }
 main {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  overflow-y: auto;
   padding: 48px 42px;
   max-width: 900px;
   margin: auto;
@@ -162,6 +174,7 @@ p {
 }
 .setting-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
@@ -172,12 +185,24 @@ p {
 }
 .setting-row div {
   min-width: 0;
+  flex: 1 1 180px;
+}
+.setting-row button {
+  flex: 0 0 auto;
+  max-width: 100%;
+  white-space: normal;
 }
 .setting-row p {
   margin: 5px 0 0;
   font-size: 12px;
   color: var(--muted);
   overflow-wrap: anywhere;
+}
+.path {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
 }
 .footnote {
   font-size: 12px;
@@ -216,6 +241,16 @@ dd {
   background: light-dark(#fff3ed, #3c302a);
   border-radius: 7px;
   line-height: 1.5;
+}
+.recovery-message {
+  margin: 0 0 10px;
+}
+.settings-group + .error {
+  margin-top: 16px;
+}
+.error button {
+  max-width: 100%;
+  white-space: normal;
 }
 @media (max-width: 850px) {
   .sidebar {
@@ -303,4 +338,42 @@ h1 {
 .advanced p {
   color: var(--muted);
   max-width: 500px;
+}
+@media (max-width: 600px) {
+  .sidebar {
+    width: 146px;
+    flex-basis: 146px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  nav button {
+    gap: 7px;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 12px;
+  }
+  main {
+    padding: 24px 16px;
+  }
+  .toolbar {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+  .setting-row {
+    padding: 14px 12px;
+  }
+  .facts div {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  dd {
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+}
+@media (prefers-contrast: more) {
+  :root {
+    --muted: light-dark(#46464c, #d1d1d6);
+    --line: light-dark(#89898f, #919197);
+  }
 }

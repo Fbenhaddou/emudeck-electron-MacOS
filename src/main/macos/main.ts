@@ -4,13 +4,11 @@ import {
   dialog,
   ipcMain,
   Menu,
-  nativeTheme,
   screen,
   session,
   shell,
 } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
-import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
@@ -22,8 +20,9 @@ import type {
 import { ComponentManager } from './component-manager';
 import { prepareDolphinLibrary } from './dolphin-library';
 import { dolphin } from '../components/dolphin';
-import { readLibrary, selectLibrary } from './library';
+import { readLibrary, selectLibrary, recoverLibrarySettings } from './library';
 import { acceptsEmptyArguments, isTrustedDocument } from './security';
+import SmokeHarness from './smoke';
 
 app.setName('Emulation Workspace');
 app.setPath(
@@ -45,6 +44,7 @@ if (smokeDirectory) {
   app.setPath('userData', path.join(candidate, 'user-data'));
 }
 
+const smoke = smokeDirectory ? new SmokeHarness(smokeDirectory) : null;
 const statePath = path.join(app.getPath('userData'), 'library.json');
 const rendererURL =
   process.env.NODE_ENV === 'development'
@@ -52,18 +52,24 @@ const rendererURL =
     : pathToFileURL(path.join(__dirname, '../renderer/index.html')).href;
 let mainWindow: BrowserWindow | null = null;
 let choosingLibrary = false;
+async function availableLibrary(): Promise<string> {
+  const library = await readLibrary(statePath);
+  if (!library?.available) throw new Error('Library unavailable');
+  return library.path;
+}
 const manager = new ComponentManager(
   path.join(app.getPath('userData'), 'components', 'dolphin'),
   () => {
     mainWindow?.show();
     mainWindow?.focus();
   },
+  undefined,
+  undefined,
+  async (root) => {
+    if ((await availableLibrary()) !== root)
+      throw new Error('Library changed or its drive is unavailable');
+  },
 );
-async function availableLibrary(): Promise<string> {
-  const library = await readLibrary(statePath);
-  if (!library?.available) throw new Error('Library unavailable');
-  return library.path;
-}
 
 function validateCaller(event: IpcMainInvokeEvent, args: unknown[]): void {
   if (
@@ -115,6 +121,12 @@ ipcMain.handle(
   'mac:install-dolphin',
   async (event, ...args): Promise<ActionResult> => {
     validateCaller(event, args);
+    if (choosingLibrary || manager.isBusy)
+      return {
+        ok: false,
+        error: 'Finish the current operation or quit the game first.',
+      };
+    choosingLibrary = true;
     try {
       const library = await availableLibrary();
       await manager.install();
@@ -128,6 +140,8 @@ ipcMain.handle(
         error:
           'Dolphin could not be installed or configured. Check your connection and library drive. Installation requires an official ARM64 build accepted by macOS security checks; existing games and saves are preserved.',
       };
+    } finally {
+      choosingLibrary = false;
     }
   },
 );
@@ -224,9 +238,15 @@ ipcMain.handle(
   async (event, ...args): Promise<LibraryResult> => {
     validateCaller(event, args);
     if (choosingLibrary || manager.isBusy)
-      return { ok: false, error: 'A folder chooser is already open.' };
+      return {
+        ok: false,
+        error:
+          'Finish the current operation or quit the game before changing your library.',
+      };
     choosingLibrary = true;
     try {
+      await manager.status();
+      if (manager.isBusy) throw new Error('A managed game is still running');
       const selection = await dialog.showOpenDialog(mainWindow!, {
         title: 'Choose Your Emulation Library',
         buttonLabel: 'Choose Library',
@@ -235,6 +255,8 @@ ipcMain.handle(
       if (selection.canceled || selection.filePaths.length !== 1) {
         return { ok: false, cancelled: true, error: 'No folder selected.' };
       }
+      await manager.status();
+      if (manager.isBusy) throw new Error('A managed game is still running');
       return {
         ok: true,
         library: await selectLibrary(statePath, selection.filePaths[0]),
@@ -272,120 +294,44 @@ ipcMain.handle(
   },
 );
 
-const smokeErrors: string[] = [];
-let smokeFinished = false;
-let smokeWatchdog: ReturnType<typeof setTimeout> | undefined;
-
-async function finishSmoke(
-  report: Record<string, unknown>,
-  success: boolean,
-): Promise<void> {
-  if (!smokeDirectory || smokeFinished) return;
-  smokeFinished = true;
-  if (smokeWatchdog) clearTimeout(smokeWatchdog);
-  try {
-    await fs.mkdir(smokeDirectory, { recursive: true });
-    await fs.writeFile(
-      path.join(smokeDirectory, 'report.json'),
-      JSON.stringify(
-        {
-          ...report,
-          ready: success,
-          errors: smokeErrors.map((message) =>
-            message.split(os.homedir()).join('<home>'),
-          ),
-          packaged: app.isPackaged,
-          architecture: process.arch,
-        },
-        null,
-        2,
-      ),
-    );
-  } finally {
-    app.exit(success ? 0 : 1);
-  }
-}
-
-// Polling readiness and changing one window's appearance must run sequentially.
-/* eslint-disable no-await-in-loop, no-restricted-syntax */
-async function captureSmoke(window: BrowserWindow): Promise<void> {
-  if (!smokeDirectory) return;
-  const deadline = Date.now() + 15000;
-  let ready = false;
-  while (!ready && Date.now() < deadline && !window.isDestroyed()) {
-    ready = await window.webContents.executeJavaScript(
-      `Boolean(document.querySelector('[data-ready="true"]') && document.querySelector("#root")?.textContent?.trim() && window.mac && !window.electron && !window.require)`,
-    );
-    if (!ready)
-      await new Promise((resolve) => {
-        setTimeout(resolve, 100);
+ipcMain.handle(
+  'mac:recover-library-settings',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args);
+    if (choosingLibrary || manager.isBusy)
+      return {
+        ok: false,
+        error: 'Finish the current operation or quit the game first.',
+      };
+    choosingLibrary = true;
+    try {
+      await manager.status();
+      if (manager.isBusy) throw new Error('A managed game is still running');
+      const choice = await dialog.showMessageBox(mainWindow!, {
+        type: 'question',
+        message: 'Recover your library settings?',
+        detail:
+          'The unreadable folder preference will be kept in a backup on this Mac. You can then choose your library again. Your game files, emulator settings, and saves stay where they are.',
+        buttons: ['Cancel', 'Back Up and Recover'],
+        defaultId: 0,
+        cancelId: 0,
       });
-  }
-  if (!ready) throw new Error('Renderer did not reach data-ready=true.');
-  // This crosses the actual isolated preload and validated main-process IPC boundary.
-  const status: MacStatus = await window.webContents.executeJavaScript(
-    'window.mac.getStatus()',
-  );
-  if (
-    status.platform !== 'darwin' ||
-    !status.appVersion ||
-    !(status.memoryBytes > 0) ||
-    status.libraryError
-  ) {
-    throw new Error(
-      'Preload status IPC returned an invalid or unsuccessful status.',
-    );
-  }
-  // Electron exposes this runtime inspection method but omits it from public typings.
-  const inspected = window.webContents as unknown as {
-    getLastWebPreferences(): Record<string, unknown>;
-  };
-  const preferences = inspected.getLastWebPreferences();
-  const safe =
-    preferences.sandbox === true &&
-    preferences.contextIsolation === true &&
-    preferences.nodeIntegration === false &&
-    preferences.webSecurity === true;
-  if (!safe)
-    throw new Error(
-      'Actual web preferences do not satisfy the security boundary.',
-    );
-  await fs.mkdir(smokeDirectory, { recursive: true });
-  const screenshots: string[] = [];
-  const variants: Array<{
-    name: string;
-    theme: 'light' | 'dark';
-    width: number;
-    height: number;
-  }> = [
-    { name: 'light', theme: 'light', width: 1120, height: 760 },
-    { name: 'dark', theme: 'dark', width: 1120, height: 760 },
-    { name: 'small', theme: 'light', width: 760, height: 560 },
-  ];
-  for (const variant of variants) {
-    nativeTheme.themeSource = variant.theme;
-    window.setSize(variant.width, variant.height);
-    await new Promise((resolve) => {
-      setTimeout(resolve, 250);
-    });
-    await window.webContents.executeJavaScript(
-      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
-    );
-    const screenshot = await window.webContents.capturePage();
-    if (screenshot.isEmpty()) throw new Error('Screenshot was empty.');
-    const filename = `window-${variant.name}.png`;
-    await fs.writeFile(
-      path.join(smokeDirectory, filename),
-      Uint8Array.from(screenshot.toPNG()),
-    );
-    screenshots.push(filename);
-  }
-  await finishSmoke(
-    { status, webPreferences: preferences, screenshots },
-    smokeErrors.length === 0,
-  );
-}
-/* eslint-enable no-await-in-loop, no-restricted-syntax */
+      if (choice.response !== 1) return { ok: true };
+      await manager.status();
+      if (manager.isBusy) throw new Error('A managed game is still running');
+      await recoverLibrarySettings(statePath);
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        error:
+          'Library settings could not be recovered. Existing preferences and library data have been preserved.',
+      };
+    } finally {
+      choosingLibrary = false;
+    }
+  },
+);
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -416,49 +362,18 @@ function createWindow(): void {
     if (mainWindow === window) mainWindow = null;
   });
   window.once('ready-to-show', () => window.show());
-  if (smokeDirectory) {
-    smokeWatchdog = setTimeout(() => {
-      smokeErrors.push('Application smoke watchdog expired.');
-      void finishSmoke({}, false);
-    }, 30000);
-    window.webContents.on('console-message', (details) => {
-      if (details.level === 'error')
-        smokeErrors.push(`Renderer: ${details.message}`);
-    });
-    window.webContents.on('preload-error', (_event, _preload, error) => {
-      smokeErrors.push(`Preload: ${error.message}`);
-      void finishSmoke({}, false);
-    });
-    window.webContents.on('render-process-gone', (_event, details) => {
-      smokeErrors.push(`Renderer exited: ${details.reason}`);
-      void finishSmoke({}, false);
-    });
-    window.webContents.on('dom-ready', () => {
-      void window.webContents
-        .executeJavaScript(
-          `
-        window.addEventListener('error', event => console.error('Smoke page error:', event.message));
-        window.addEventListener('unhandledrejection', event => console.error('Smoke unhandled rejection:', String(event.reason)));
-      `,
-        )
-        .catch(() => {
-          smokeErrors.push('Could not attach page error observers.');
-        });
-    });
-  }
+  smoke?.observe(window);
   window.webContents.once('did-finish-load', () => {
-    captureSmoke(window).catch((error: unknown) => {
-      smokeErrors.push(
-        error instanceof Error ? error.message : 'Smoke capture failed.',
-      );
-      void finishSmoke({}, false);
-    });
+    void smoke
+      ?.capture(window, statePath, getStatus)
+      .catch((error: unknown) => {
+        smoke.fail(
+          error instanceof Error ? error.message : 'Smoke capture failed.',
+        );
+      });
   });
   window.loadURL(rendererURL).catch(() => {
-    if (smokeDirectory) {
-      smokeErrors.push('Renderer document failed to load.');
-      void finishSmoke({}, false);
-    }
+    smoke?.fail('Renderer document failed to load.');
   });
 }
 
@@ -473,6 +388,40 @@ function denyPermission(
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
+  let quitting = false;
+  let checkingQuit = false;
+  app.on('before-quit', (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    if (checkingQuit) return;
+    checkingQuit = true;
+    void (async () => {
+      try {
+        await manager.status();
+        if (manager.isBusy || choosingLibrary) {
+          const options: Electron.MessageBoxOptions = {
+            type: 'info',
+            message: 'Finish your current session first',
+            detail:
+              'Quit the game or wait for the current operation to finish, then quit Emulation Workspace. This keeps your settings and saves protected.',
+            buttons: ['OK'],
+          };
+          if (mainWindow) await dialog.showMessageBox(mainWindow, options);
+          else await dialog.showMessageBox(options);
+          return;
+        }
+        quitting = true;
+        app.quit();
+      } finally {
+        checkingQuit = false;
+      }
+    })().catch(() => {
+      dialog.showErrorBox(
+        'Could not check your session',
+        'Running applications could not be checked. Quit Dolphin, then try quitting Emulation Workspace again.',
+      );
+    });
+  });
   app.on('second-instance', () => {
     if (mainWindow?.isMinimized()) mainWindow.restore();
     mainWindow?.show();

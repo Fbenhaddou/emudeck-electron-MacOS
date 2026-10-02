@@ -53,7 +53,7 @@ async function run() {
         /* Already exited. */
       }
     }
-  }, 45000);
+  }, 55000);
   let code;
   try {
     code = await new Promise((resolve, reject) => {
@@ -77,6 +77,25 @@ async function run() {
     );
   }
   const preferences = report.webPreferences || {};
+  const expectedScreenshots = [
+    ...[
+      'window',
+      'page-emulators',
+      'page-this-mac',
+      'page-development',
+      'library-selected',
+      'library-disconnected',
+      'library-error',
+      'emulators-library',
+      'emulators-installed',
+      'emulators-advanced',
+    ].flatMap((prefix) =>
+      ['light', 'dark', 'small'].map((variant) => `${prefix}-${variant}.png`),
+    ),
+    ...['zoom-emulators', 'zoom-library', 'keyboard-focus'].flatMap((prefix) =>
+      ['light', 'dark'].map((theme) => `${prefix}-${theme}.png`),
+    ),
+  ];
   if (
     timedOut ||
     code !== 0 ||
@@ -89,18 +108,32 @@ async function run() {
     report.status?.platform !== 'darwin' ||
     !report.status?.appVersion ||
     !Array.isArray(report.screenshots) ||
-    report.screenshots.length !== 3 ||
+    report.screenshots.length !== expectedScreenshots.length ||
+    new Set(report.screenshots).size !== expectedScreenshots.length ||
+    expectedScreenshots.some(
+      (filename) => !report.screenshots.includes(filename),
+    ) ||
+    report.coverage?.screenshotCount !== expectedScreenshots.length ||
+    report.coverage?.realPreloadAndIPC !== true ||
+    report.coverage?.fixturesInsideIsolatedUserData !== true ||
+    report.coverage?.syntheticInstalledState !== true ||
+    report.coverage?.zoomActionsKeyboardReachable !== true ||
+    !report.coverage?.syntheticFixtureNote ||
+    !Array.isArray(report.captures) ||
+    report.captures.length !== expectedScreenshots.length ||
+    report.captures.some(
+      (capture) =>
+        capture.horizontalOverflow ||
+        (capture.filename.startsWith('keyboard-focus-') &&
+          !capture.keyboardFocus),
+    ) ||
     Boolean(packagedExecutable) !== report.packaged
   ) {
     throw new Error(
       `Smoke failed (exit ${code}, timeout ${timedOut}). Report: ${reportPath}`,
     );
   }
-  for (const filename of [
-    'window-light.png',
-    'window-dark.png',
-    'window-small.png',
-  ]) {
+  for (const filename of expectedScreenshots) {
     const data = await fs.readFile(path.join(directory, filename));
     if (
       data.length < 100 ||

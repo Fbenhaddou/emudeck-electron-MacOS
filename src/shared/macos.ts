@@ -43,4 +43,5 @@ export interface MacAPI {
   installDolphin(): Promise<ActionResult>;
   playGame(): Promise<ActionResult>;
   resetDolphin(): Promise<ActionResult>;
+  recoverLibrarySettings(): Promise<ActionResult>;
 }
