@@ -96,7 +96,9 @@ async function consume(
   api = false,
 ): Promise<number> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120000);
+  // Official DMGs can take several minutes on a slow connection. Keep an
+  // absolute deadline and byte limit; metadata retains the shorter timeout.
+  const timer = setTimeout(() => controller.abort(), api ? 120000 : 600000);
   let response: ResponseStream | undefined;
   let current = url;
   try {

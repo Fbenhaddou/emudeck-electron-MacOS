@@ -25,6 +25,14 @@ const metadata = {
   hash: 'a'.repeat(40),
   artifacts: [{ system: 'macOS (ARM/Intel Universal)', url }],
 };
+const bundleMetadata = {
+  CFBundleIdentifier: 'org.dolphin-emu.dolphin',
+  CFBundleExecutable: 'Dolphin',
+  CFBundleShortVersionString: metadata.shortrev,
+  CFBundleLongVersionString: metadata.hash,
+  CFBundleVersion: '2609.0',
+  LSMinimumSystemVersion: '11.0.0',
+};
 function response(
   body: string,
   statusCode = 200,
@@ -131,21 +139,19 @@ test('mount metadata cannot redirect installation outside private mount', () => 
     ),
   ).toThrow();
 });
-test('bundle verification uses identity, ARM64, codesign and Gatekeeper in order', async () => {
+test('bundle verification checks host OS, native architecture, publisher and Gatekeeper', async () => {
   const commands: string[] = [];
   const run: ProcessRunner = async (binary) => {
     commands.push(binary);
-    if (binary.endsWith('plutil'))
-      return JSON.stringify({
-        CFBundleIdentifier: 'org.dolphin-emu.dolphin',
-        CFBundleExecutable: 'Dolphin',
-      });
+    if (binary.endsWith('plutil')) return JSON.stringify(bundleMetadata);
+    if (binary.endsWith('sw_vers')) return '27.0\n';
     if (binary.endsWith('lipo')) return 'x86_64 arm64';
     return '';
   };
-  await verifyBundle('/tmp/Dolphin.app', run);
+  await verifyBundle('/tmp/Dolphin.app', run, selectRelease(metadata));
   expect(commands).toEqual([
     '/usr/bin/plutil',
+    '/usr/bin/sw_vers',
     '/usr/bin/lipo',
     '/usr/bin/codesign',
     '/usr/bin/codesign',
@@ -162,6 +168,110 @@ test('bundle verification uses identity, ARM64, codesign and Gatekeeper in order
   ).rejects.toThrow('identity');
 });
 
+function bundleRunner(
+  overrides: Record<string, unknown> = {},
+  architecture = 'x86_64 arm64',
+  systemVersion = '27.0\n',
+): ProcessRunner {
+  return async (binary) => {
+    if (binary.endsWith('plutil'))
+      return JSON.stringify({ ...bundleMetadata, ...overrides });
+    if (binary.endsWith('sw_vers')) return systemVersion;
+    if (binary.endsWith('lipo')) return architecture;
+    return '';
+  };
+}
+
+test.each([
+  [{ CFBundleShortVersionString: '2608' }, 'version'],
+  [{ CFBundleShortVersionString: undefined }, 'version'],
+  [{ CFBundleLongVersionString: 'b'.repeat(40) }, 'revision'],
+  [{ CFBundleLongVersionString: undefined }, 'revision'],
+])(
+  'rejects a trusted publisher bundle with mismatched release metadata %j',
+  async (overrides, message) => {
+    await expect(
+      verifyBundle(
+        '/tmp/Dolphin.app',
+        bundleRunner(overrides),
+        selectRelease(metadata),
+      ),
+    ).rejects.toThrow(message);
+  },
+);
+
+test('an installed version can be checked without requiring a source revision', async () => {
+  await expect(
+    verifyBundle(
+      '/tmp/Dolphin.app',
+      bundleRunner({ CFBundleLongVersionString: undefined }),
+      { version: '2609' },
+    ),
+  ).resolves.toBeUndefined();
+});
+
+test('rejects a signed Intel-only bundle', async () => {
+  await expect(
+    verifyBundle('/tmp/Dolphin.app', bundleRunner({}, 'x86_64'), {
+      version: '2609',
+    }),
+  ).rejects.toThrow('Apple Silicon');
+});
+
+test.each([
+  ['11.0', '11.0.0\n'],
+  ['11.0.0', '11.0\n'],
+  ['11.0.1', '12.0\n'],
+  ['26.9.9', '27.0\n'],
+])('accepts required macOS %s on host %s', async (minimum, current) => {
+  await expect(
+    verifyBundle(
+      '/tmp/Dolphin.app',
+      bundleRunner({ LSMinimumSystemVersion: minimum }, 'arm64', current),
+    ),
+  ).resolves.toBeUndefined();
+});
+
+test.each([
+  ['11.0.1', '11.0\n'],
+  ['27.1', '27.0.9\n'],
+  ['28.0', '27.9\n'],
+])('rejects required macOS %s on older host %s', async (minimum, current) => {
+  await expect(
+    verifyBundle(
+      '/tmp/Dolphin.app',
+      bundleRunner({ LSMinimumSystemVersion: minimum }, 'arm64', current),
+    ),
+  ).rejects.toThrow(`requires macOS ${minimum}`);
+});
+
+test.each([
+  undefined,
+  11,
+  '',
+  '11',
+  '11.0-beta',
+  '11.0.0.1',
+  '11.0\n',
+  '999999999999999999.0',
+])('rejects malformed bundle minimum OS %j', async (minimum) => {
+  await expect(
+    verifyBundle(
+      '/tmp/Dolphin.app',
+      bundleRunner({ LSMinimumSystemVersion: minimum }),
+    ),
+  ).rejects.toThrow('Cannot verify');
+});
+
+test.each(['unknown', '27.0 beta\n', '2'.repeat(65)])(
+  'fails closed on unsupported host version output %j',
+  async (current) => {
+    await expect(
+      verifyBundle('/tmp/Dolphin.app', bundleRunner({}, 'arm64', current)),
+    ).rejects.toThrow('Cannot verify');
+  },
+);
+
 /* eslint-disable jest/no-conditional-expect -- Parameterized transaction exercises success and failure assertions separately. */
 describe('transactional installation with injected tools', () => {
   test.each([false, true])(
@@ -173,13 +283,17 @@ describe('transactional installation with injected tools', () => {
       );
       let mountPoint = '';
       let detached = false;
+      let mounted = false;
       const run: ProcessRunner = async (binary, args, input) => {
         if (binary.endsWith('hdiutil')) {
+          if (args[0] === 'info') return '<inventory fixture/>';
           if (args[0] === 'detach') {
             detached = true;
+            mounted = false;
             return '';
           }
           mountPoint = args[args.indexOf('-mountpoint') + 1];
+          mounted = true;
           await fs.mkdir(path.join(mountPoint, 'Dolphin.app'));
           await fs.writeFile(
             path.join(mountPoint, 'Dolphin.app', 'data'),
@@ -188,15 +302,27 @@ describe('transactional installation with injected tools', () => {
           return '<plist fixture/>';
         }
         if (binary.endsWith('plutil')) {
+          if (input === '<inventory fixture/>')
+            return JSON.stringify({
+              images: mounted
+                ? [
+                    {
+                      'image-path': path.join(
+                        path.dirname(mountPoint),
+                        'download.dmg',
+                      ),
+                      'system-entities': [{ 'mount-point': mountPoint }],
+                    },
+                  ]
+                : [],
+            });
           if (input)
             return JSON.stringify({
               'system-entities': [{ 'mount-point': mountPoint }],
             });
-          return JSON.stringify({
-            CFBundleIdentifier: 'org.dolphin-emu.dolphin',
-            CFBundleExecutable: 'Dolphin',
-          });
+          return JSON.stringify(bundleMetadata);
         }
+        if (binary.endsWith('sw_vers')) return '27.0\n';
         if (binary.endsWith('lipo')) return 'x86_64 arm64';
         if (binary.endsWith('codesign')) {
           if (args.includes('--deep')) {
