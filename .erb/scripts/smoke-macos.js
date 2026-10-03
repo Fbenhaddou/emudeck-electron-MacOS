@@ -102,7 +102,13 @@ async function run() {
     ].flatMap((prefix) =>
       ['light', 'dark', 'small'].map((variant) => `${prefix}-${variant}.png`),
     ),
-    ...['zoom-emulators', 'zoom-library', 'keyboard-focus'].flatMap((prefix) =>
+    ...[
+      'zoom-emulators',
+      'zoom-library',
+      'zoom-this-mac',
+      'zoom-development',
+      'keyboard-focus',
+    ].flatMap((prefix) =>
       ['light', 'dark'].map((theme) => `${prefix}-${theme}.png`),
     ),
   ];
@@ -131,6 +137,8 @@ async function run() {
     report.coverage?.fixturesInsideIsolatedUserData !== true ||
     report.coverage?.syntheticInstalledState !== true ||
     report.coverage?.zoomActionsKeyboardReachable !== true ||
+    report.coverage?.allPagesAtTextZoom !== true ||
+    report.coverage?.zoomFactValuesVisible !== true ||
     report.coverage?.menuRefreshPreservesPageAndFocus !== true ||
     report.coverage?.refreshSubscriptionCleanup !== true ||
     report.coverage?.newErrorRevealedWithoutFocus !== true ||

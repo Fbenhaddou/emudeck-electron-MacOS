@@ -563,6 +563,44 @@ export default class SmokeHarness {
         1,
         true,
       );
+      // eslint-disable-next-line no-restricted-syntax -- Every implemented page must fit at text zoom.
+      for (const [page, prefix] of [
+        ['This Mac', 'zoom-this-mac'],
+        ['Development', 'zoom-development'],
+      ]) {
+        // eslint-disable-next-line no-await-in-loop
+        await this.navigate(window, page);
+        window.webContents.setZoomFactor(2);
+        // eslint-disable-next-line no-await-in-loop -- Inspect the final facts, including actual display dimensions.
+        await window.webContents
+          .executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => {
+          document.querySelector('.facts div:last-child')?.scrollIntoView({ block: 'end' });
+          resolve();
+        }))`);
+        // eslint-disable-next-line no-await-in-loop
+        await this.waitFor(
+          window,
+          `(() => {
+          const value = document.querySelector('.facts div:last-child dd');
+          const viewport = document.querySelector('main').getBoundingClientRect();
+          if (!value) return false;
+          const bounds = value.getBoundingClientRect();
+          return bounds.left >= viewport.left - 1 && bounds.right <= viewport.right + 1 && bounds.top >= viewport.top - 1 && bounds.bottom <= viewport.bottom + 1;
+        })()`,
+          `${page} final facts visible at 200 percent zoom`,
+        );
+        // eslint-disable-next-line no-await-in-loop
+        await this.image(
+          window,
+          `${prefix}-${theme}.png`,
+          `${page} / 200 percent zoom / real status`,
+          theme,
+          760,
+          560,
+          false,
+          2,
+        );
+      }
       // eslint-disable-next-line no-await-in-loop
       await this.navigate(window, 'Emulators');
     }
@@ -585,6 +623,8 @@ export default class SmokeHarness {
           nativeWindowChrome: false,
           voiceOver: false,
           zoomActionsKeyboardReachable: true,
+          allPagesAtTextZoom: true,
+          zoomFactValuesVisible: true,
           menuRefreshPreservesPageAndFocus: true,
           refreshSubscriptionCleanup: true,
           newErrorRevealedWithoutFocus: true,
