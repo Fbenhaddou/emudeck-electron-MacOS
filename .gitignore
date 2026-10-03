@@ -30,3 +30,4 @@ npm-debug.log.*
 release/app/package-lock.json
 *.db
 release/build-macos
+release/native

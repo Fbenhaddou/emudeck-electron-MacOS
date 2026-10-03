@@ -27,6 +27,11 @@ export interface DolphinStatus {
   operation: 'idle' | 'installing' | 'launching' | 'running' | 'resetting';
 }
 
+export interface DolphinExit {
+  code: number | null;
+  signal: NodeJS.Signals | null;
+}
+
 /** One component vertical slice; installation never writes into the portable library. */
 export class ComponentManager {
   private operation: DolphinStatus['operation'] = 'idle';
@@ -157,6 +162,19 @@ export class ComponentManager {
   }
 
   async launch(library: string, game: string): Promise<void> {
+    await this.start(library, game);
+  }
+
+  /** A frontend wait client observes this exact child, not a global process scan. */
+  async launchAndWait(library: string, game: string): Promise<DolphinExit> {
+    const session = await this.start(library, game);
+    return session.finished;
+  }
+
+  private async start(
+    library: string,
+    game: string,
+  ): Promise<{ finished: Promise<DolphinExit> }> {
     await this.begin('launching');
     try {
       const installed = await this.installed();
@@ -173,6 +191,10 @@ export class ComponentManager {
         appBundlePath: installed.bundle,
         romPath: rom,
       });
+      let finish!: (result: DolphinExit) => void;
+      const finished = new Promise<DolphinExit>((resolve) => {
+        finish = resolve;
+      });
       await new Promise<void>((resolve, reject) => {
         const child = this.dependencies.spawn(plan.executable, [...plan.args], {
           cwd: plan.cwd,
@@ -180,18 +202,23 @@ export class ComponentManager {
           stdio: 'ignore',
         });
         this.child = child;
-        child.once('error', reject);
+        child.once('error', (error) => {
+          finish({ code: null, signal: null });
+          reject(error);
+        });
         child.once('spawn', () => {
           this.operation = 'running';
           resolve();
         });
-        child.once('exit', () => {
+        child.once('exit', (code, signal) => {
+          finish({ code, signal });
           if (this.child !== child) return;
           this.child = null;
           this.operation = 'idle';
           this.onExit();
         });
       });
+      return { finished };
     } catch (error) {
       this.operation = 'idle';
       this.child = null;

@@ -197,6 +197,58 @@ describe('component manager operation and installation boundaries', () => {
     expect(manager.isBusy).toBe(false);
   });
 
+  it('keeps a frontend waiting for the exact child and returns its exit result', async () => {
+    await receipt();
+    const deps = dependencies();
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    (deps.spawn as jest.Mock).mockImplementation(() => {
+      process.nextTick(() => {
+        child.emit('spawn');
+        started();
+      });
+      return child;
+    });
+    const exited = jest.fn();
+    const manager = new ComponentManager(root, exited, deps);
+    let settled = false;
+    const finished = manager.launchAndWait(
+      root,
+      path.join(root, 'roms/gc/legal.dol'),
+    );
+    void finished.then(() => {
+      settled = true;
+      return undefined;
+    });
+    await ready;
+    new ChildProcess().emit('exit', 0, null);
+    await expect(manager.reset(root)).rejects.toThrow('active');
+    expect(settled).toBe(false);
+    child.emit('exit', 7, null);
+    await expect(finished).resolves.toEqual({ code: 7, signal: null });
+    expect(manager.isBusy).toBe(false);
+    expect(exited).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not lose completion when the child exits immediately after spawn', async () => {
+    await receipt();
+    const deps = dependencies();
+    (deps.spawn as jest.Mock).mockImplementation(() => {
+      process.nextTick(() => {
+        child.emit('spawn');
+        child.emit('exit', null, 'SIGTERM');
+      });
+      return child;
+    });
+    const manager = new ComponentManager(root, jest.fn(), deps);
+    await expect(
+      manager.launchAndWait(root, path.join(root, 'roms/gc/legal.dol')),
+    ).resolves.toEqual({ code: null, signal: 'SIGTERM' });
+    expect(manager.isBusy).toBe(false);
+  });
+
   it('unlocks on synchronous process creation failure without reporting an exit', async () => {
     await receipt();
     const deps = dependencies();
