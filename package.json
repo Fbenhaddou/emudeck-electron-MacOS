@@ -65,6 +65,8 @@
     "package:legacy": "cross-env node ./.erb/scripts/clean.js dist && npm run build:legacy && electron-builder build --publish never",
     "lint:macos": "eslint src/main/macos src/main/components src/shared src/renderer/macos --ext .ts,.tsx",
     "smoke:macos": "node .erb/scripts/smoke-macos.js",
+    "verify:package:macos": "node .erb/scripts/verify-macos-package.js",
+    "verify:dolphin:macos": "node .erb/scripts/verify-dolphin-macos.js",
     "build:dll": "cross-env NODE_ENV=development webpack --config ./.erb/configs/webpack.config.renderer.dev.dll.js"
   },
   "lint-staged": {
