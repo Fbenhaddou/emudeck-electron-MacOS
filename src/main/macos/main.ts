@@ -392,7 +392,11 @@ function denyPermission(
 
 function refreshStatusFromMenu(): void {
   const contents = mainWindow?.webContents;
-  if (!contents || !isTrustedDocument(contents.mainFrame.url, rendererURL))
+  if (
+    !contents ||
+    contents.isDestroyed() ||
+    !isTrustedDocument(contents.mainFrame.url, rendererURL)
+  )
     return;
   contents.send('mac:refresh-status');
 }
@@ -435,6 +439,7 @@ if (!app.requestSingleInstanceLock()) {
     });
   });
   app.on('second-instance', () => {
+    if (!mainWindow && app.isReady()) createWindow();
     if (mainWindow?.isMinimized()) mainWindow.restore();
     mainWindow?.show();
     mainWindow?.focus();

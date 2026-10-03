@@ -75,6 +75,7 @@ function createFixture() {
     getVersion: jest.fn(() => 'test-version'),
     requestSingleInstanceLock: jest.fn(() => true),
     whenReady: jest.fn(() => ready),
+    isReady: jest.fn(() => true),
     quit: jest.fn(),
     exit: jest.fn(),
   });
@@ -85,6 +86,7 @@ function createFixture() {
       setWindowOpenHandler: jest.fn(),
       executeJavaScript: jest.fn(async () => undefined),
       send: jest.fn(),
+      isDestroyed: jest.fn(() => false),
     });
 
     show = jest.fn();
@@ -358,6 +360,10 @@ describe('actual macOS main IPC and quit boundaries', () => {
     expect(fixture.windows[0].focus).not.toHaveBeenCalled();
     fixture.assertNoProtectedWork();
 
+    fixture.windows[0].webContents.isDestroyed.mockReturnValue(true);
+    refresh.click!(undefined as never, undefined, undefined as never);
+    expect(fixture.windows[0].webContents.send).toHaveBeenCalledTimes(1);
+    fixture.windows[0].webContents.isDestroyed.mockReturnValue(false);
     fixture.windows[0].webContents.mainFrame.url =
       'https://untrusted.test/index.html';
     refresh.click!(undefined as never, undefined, undefined as never);
@@ -365,6 +371,11 @@ describe('actual macOS main IPC and quit boundaries', () => {
     fixture.windows[0].emit('closed');
     refresh.click!(undefined as never, undefined, undefined as never);
     expect(fixture.windows[0].webContents.send).toHaveBeenCalledTimes(1);
+    fixture.electron.app.emit('second-instance');
+    expect(fixture.windows).toHaveLength(2);
+    expect(fixture.windows[1].loadURL).toHaveBeenCalledTimes(1);
+    expect(fixture.windows[1].focus).toHaveBeenCalledTimes(1);
+    fixture.assertNoProtectedWork();
   });
 
   it('blocks choose, play, reset, preference recovery, and a second install until the first install finishes', async () => {
