@@ -212,7 +212,9 @@ export async function createCatalog(
   }
   /* eslint-enable no-restricted-syntax, no-await-in-loop */
 
-  const command = `'${helperPath}' --session '${root}' --game %ROM%`;
+  // ES-DE's pinned executable parser recognizes leading double quotes only.
+  // Our absolute ASCII helper path excludes whitespace and shell metacharacters.
+  const command = `${helperPath} --session '${root}' --game %ROM%`;
   const declaration = '<?xml version="1.0" encoding="UTF-8"?>\n';
   const gamelist = `${declaration}<gameList>\n${games
     .map(

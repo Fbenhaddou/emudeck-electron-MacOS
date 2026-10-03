@@ -60,7 +60,7 @@ test('creates only opaque markers and a GameCube-exclusive launch profile', asyn
   expect(systems.querySelectorAll('command')).toHaveLength(1);
   expect(systems.querySelector('command')?.textContent).toBe(catalog.command);
   expect(catalog.command).toBe(
-    `'${root}/helper' --session '${root}' --game %ROM%`,
+    `${root}/helper --session '${root}' --game %ROM%`,
   );
   expect(catalog.command.match(/%[^%]+%/g)).toEqual(['%ROM%']);
   names.forEach((name) => expect(catalog.command).not.toContain(name));
