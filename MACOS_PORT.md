@@ -35,3 +35,13 @@ Signing, notarization, fresh-user/reboot tests, physically disconnected storage 
 - Dependency postinstall no longer asks Electron Builder to run a nested install for an empty production dependency manifest. Lint's webpack resolver is side-effect-free. Full legacy lint now reaches its pre-existing debt (thousands of findings), rather than failing in dependency setup; new Mac code has a separate gate.
 - Scoped Mac typecheck uses strict source checking with skipLibCheck only for third-party declaration incompatibilities (@types/node17 versus TypeScript5.9). This does not repair the legacy whole-repository typecheck. Existing ts-jest28 warns about TypeScript5.9; upgrading that test stack remains work.
 - No submodule pointer or baseline tag changed. No reference files copied or modified.
+
+## Verified implementation checkpoint (2026-10-03)
+
+The scoped Mac suite now has287 passing tests; strict source typecheck and scoped lint pass. The compiled ARM64 wait client passed20 real protocol/lifecycle checks. The expanded production, development and packaged smoke each passed40 actual Electron captures with real preload/IPC,200% text zoom, native-menu refresh subscription cleanup and page/focus preservation. Baseline failures above remain unchanged.
+
+A developer-only ES-DE3.5.0 experiment launched the documented legal240p derivative through an opaque authenticated catalog, waited for Dolphin's exact child, observed its normal exit and returned to the frontend. SDL's initial VSync wait stalled on this host; disabling VSync for the experiment allowed startup. Physical input, automatic focus restoration and the product Console Mode remain unverified.
+
+A genuine Dolphin Slot1 savestate was observed saving and later loading in a private native session. Its bytes survived an interrupted initial session, settings reset, a later normal exit and a second settings reset. See TESTING.md for reports, hashes and the distinction between savestates and game-created memory-card saves. No real user library was modified.
+
+Native Close/Refresh/reopen/quit behavior and visible200% facts were independently reviewed. The final ARM64 preview preserves17 byte-identical notice/research files, has a minimal10-entry application asar and passes unsigned native/runtime correspondence and DMG checksum checks. The real2606a→2609 install/failure/retry test preserved prior bundles and synthetic library data across manager restart. Product rollback/repair, physical input, game-created memory-card saves, automatic frontend focus and clean-user/reboot remain open.
