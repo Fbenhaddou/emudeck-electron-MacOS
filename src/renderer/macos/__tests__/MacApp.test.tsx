@@ -26,13 +26,20 @@ const status: MacStatus = {
     consoleMode: 'planned',
   },
 };
+let refreshFromMenu: () => void;
+let unsubscribeRefresh: jest.Mock;
 beforeEach(() => {
+  unsubscribeRefresh = jest.fn();
   window.mac = {
     installDolphin: jest.fn().mockResolvedValue({ ok: true }),
     playGame: jest.fn().mockResolvedValue({ ok: true }),
     resetDolphin: jest.fn().mockResolvedValue({ ok: true }),
     recoverLibrarySettings: jest.fn().mockResolvedValue({ ok: true }),
     getStatus: jest.fn().mockResolvedValue(status),
+    onRefreshStatus: jest.fn((callback: () => void) => {
+      refreshFromMenu = callback;
+      return unsubscribeRefresh;
+    }),
     chooseLibrary: jest
       .fn()
       .mockResolvedValue({ ok: false, cancelled: true, error: 'Cancelled' }),
@@ -41,6 +48,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   jest.useRealTimers();
+  jest.restoreAllMocks();
 });
 it('loads status from the narrow API and leaves cancelled selection unchanged', async () => {
   render(<MacApp />);
@@ -91,6 +99,66 @@ it('starts a newly selected page at the top without moving content on status ref
   fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }));
   await waitFor(() => expect(window.mac.getStatus).toHaveBeenCalledTimes(2));
   expect(main.scrollTop).toBe(120);
+});
+it('refreshes from the native menu while preserving page, scroll and keyboard focus, then unsubscribes', async () => {
+  const { unmount } = render(<MacApp />);
+  await screen.findByRole('button', { name: 'Choose Folder…' });
+  const pageButton = screen.getByRole('button', { name: 'Emulators' });
+  fireEvent.click(pageButton);
+  pageButton.focus();
+  const main = screen.getByRole('main');
+  main.scrollTop = 120;
+  await act(async () => {
+    refreshFromMenu();
+  });
+  expect(window.mac.getStatus).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(
+    'Emulators',
+  );
+  expect(document.activeElement).toBe(pageButton);
+  expect(main.scrollTop).toBe(120);
+  unmount();
+  expect(unsubscribeRefresh).toHaveBeenCalledTimes(1);
+});
+it('reveals a newly appearing action error without stealing focus or moving content on later refresh', async () => {
+  jest
+    .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+    .mockImplementation(function bounds(this: HTMLElement) {
+      const main = document.querySelector('main');
+      const top = this === main ? 50 : 90 - (main?.scrollTop || 0);
+      return {
+        top,
+        bottom: top + (this === main ? 200 : 80),
+        left: 0,
+        right: 400,
+        width: 400,
+        height: this === main ? 200 : 80,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      };
+    });
+  window.mac.chooseLibrary = jest.fn().mockResolvedValue({
+    ok: false,
+    error: 'The selected drive is unavailable.',
+  });
+  render(<MacApp />);
+  const choose = await screen.findByRole('button', { name: 'Choose Folder…' });
+  const main = screen.getByRole('main');
+  choose.focus();
+  main.scrollTop = 240;
+  fireEvent.click(choose);
+  const alert = await screen.findByRole('alert');
+  await waitFor(() => expect(choose).toBeEnabled());
+  expect(alert.getBoundingClientRect().top).toBe(50);
+  expect(main.scrollTop).toBe(40);
+  expect(document.activeElement).toBe(choose);
+  main.scrollTop = 160;
+  await act(async () => {
+    refreshFromMenu();
+  });
+  expect(main.scrollTop).toBe(160);
+  expect(document.activeElement).toBe(choose);
 });
 it('clears a status-read error when Refresh succeeds', async () => {
   window.mac.getStatus = jest

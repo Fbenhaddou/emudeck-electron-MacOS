@@ -2,6 +2,7 @@
 import { EventEmitter } from 'events';
 import os from 'os';
 import path from 'path';
+import type { MenuItemConstructorOptions } from 'electron';
 
 interface Frame {
   url: string;
@@ -83,6 +84,7 @@ function createFixture() {
       mainFrame: { url: '' },
       setWindowOpenHandler: jest.fn(),
       executeJavaScript: jest.fn(async () => undefined),
+      send: jest.fn(),
     });
 
     show = jest.fn();
@@ -114,7 +116,9 @@ function createFixture() {
       ),
     },
     Menu: {
-      buildFromTemplate: jest.fn(() => []),
+      buildFromTemplate: jest.fn(
+        (template: MenuItemConstructorOptions[]) => template,
+      ),
       setApplicationMenu: jest.fn(),
     },
     nativeTheme: {},
@@ -308,6 +312,59 @@ describe('actual macOS main IPC and quit boundaries', () => {
     expect(fixture.readLibrary).toHaveBeenCalledTimes(1);
     expect(fixture.manager.status).toHaveBeenCalledTimes(1);
     expect(fixture.manager.install).not.toHaveBeenCalled();
+  });
+
+  it('offers native Close and status refresh without renderer reload or production developer tools', () => {
+    const template = fixture.electron.Menu.buildFromTemplate.mock.calls[0][0];
+    const file = template.find((item) => item.label === 'File');
+    expect(file?.submenu).toEqual([
+      { role: 'close', accelerator: 'CmdOrCtrl+W' },
+    ]);
+    const view = template.find((item) => item.label === 'View');
+    const commands = view?.submenu as MenuItemConstructorOptions[];
+    expect(commands).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'mac-refresh-status',
+          label: 'Refresh Status',
+          accelerator: 'CmdOrCtrl+R',
+        }),
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { role: 'togglefullscreen' },
+      ]),
+    );
+    expect(
+      commands.some((command) =>
+        ['reload', 'forceReload', 'toggleDevTools'].includes(
+          command.role || '',
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('sends only a fixed no-data refresh notification to the trusted current window', () => {
+    const template = fixture.electron.Menu.buildFromTemplate.mock.calls[0][0];
+    const commands = template.find((item) => item.label === 'View')
+      ?.submenu as MenuItemConstructorOptions[];
+    const refresh = commands.find((item) => item.id === 'mac-refresh-status')!;
+    refresh.click!(undefined as never, undefined, undefined as never);
+    expect(fixture.windows[0].webContents.send).toHaveBeenCalledWith(
+      'mac:refresh-status',
+    );
+    expect(fixture.windows[0].webContents.send).toHaveBeenCalledTimes(1);
+    expect(fixture.windows[0].loadURL).toHaveBeenCalledTimes(1);
+    expect(fixture.windows[0].focus).not.toHaveBeenCalled();
+    fixture.assertNoProtectedWork();
+
+    fixture.windows[0].webContents.mainFrame.url =
+      'https://untrusted.test/index.html';
+    refresh.click!(undefined as never, undefined, undefined as never);
+    expect(fixture.windows[0].webContents.send).toHaveBeenCalledTimes(1);
+    fixture.windows[0].emit('closed');
+    refresh.click!(undefined as never, undefined, undefined as never);
+    expect(fixture.windows[0].webContents.send).toHaveBeenCalledTimes(1);
   });
 
   it('blocks choose, play, reset, preference recovery, and a second install until the first install finishes', async () => {

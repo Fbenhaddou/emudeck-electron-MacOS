@@ -1,4 +1,4 @@
-import { app, BrowserWindow, nativeTheme } from 'electron';
+import { app, BrowserWindow, Menu, nativeTheme } from 'electron';
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
@@ -247,6 +247,51 @@ export default class SmokeHarness {
     );
   }
 
+  private async menuRefresh(window: BrowserWindow): Promise<void> {
+    const item =
+      Menu.getApplicationMenu()?.getMenuItemById('mac-refresh-status');
+    if (!item)
+      throw new Error('Native Refresh Status menu command is missing.');
+    await this.navigate(window, 'Emulators');
+    await window.webContents.executeJavaScript(`
+      document.querySelector('nav button[aria-current]').focus();
+      window.__smokeMenuFocus = document.activeElement;
+      window.__smokeRefreshCalls = 0;
+      window.__smokeRefreshArguments = -1;
+      window.__smokeUnsubscribeRefresh = window.mac.onRefreshStatus((...args) => {
+        window.__smokeRefreshCalls += 1;
+        window.__smokeRefreshArguments = args.length;
+      });
+      void 0;
+    `);
+    item.click(item, window, {} as Electron.KeyboardEvent);
+    await this.waitFor(
+      window,
+      'window.__smokeRefreshCalls === 1',
+      'native menu notification through the real preload',
+    );
+    await window.webContents.executeJavaScript(
+      'window.__smokeUnsubscribeRefresh()',
+    );
+    item.click(item, window, {} as Electron.KeyboardEvent);
+    await window.webContents.executeJavaScript(
+      'new Promise(resolve => setTimeout(resolve, 60))',
+    );
+    const preserved = await window.webContents.executeJavaScript(`(() => {
+      const result = window.__smokeRefreshCalls === 1 && window.__smokeRefreshArguments === 0 && document.activeElement === window.__smokeMenuFocus && document.querySelector('nav button[aria-current]')?.textContent.trim() === 'Emulators';
+      delete window.__smokeMenuFocus;
+      delete window.__smokeRefreshCalls;
+      delete window.__smokeRefreshArguments;
+      delete window.__smokeUnsubscribeRefresh;
+      return result;
+    })()`);
+    if (!preserved)
+      throw new Error(
+        'Menu refresh changed page/focus, forwarded data, or retained an unsubscribed callback.',
+      );
+    await this.navigate(window, 'Library');
+  }
+
   async capture(
     window: BrowserWindow,
     statePath: string,
@@ -296,6 +341,36 @@ export default class SmokeHarness {
       throw new Error(
         'Actual web preferences do not satisfy the security boundary.',
       );
+    const bridge = (await window.webContents.executeJavaScript(`({
+      methods: Object.keys(window.mac).sort(),
+      frozen: Object.isFrozen(window.mac),
+      callbackTypeRejected: [null, undefined, 'callback', 1, {}, []].every(value => {
+        try { window.mac.onRefreshStatus(value); return false; } catch { return true; }
+      })
+    })`)) as {
+      methods: string[];
+      frozen: boolean;
+      callbackTypeRejected: boolean;
+    };
+    const expectedMethods = [
+      'chooseLibrary',
+      'getStatus',
+      'installDolphin',
+      'onRefreshStatus',
+      'playGame',
+      'recoverLibrarySettings',
+      'resetDolphin',
+      'revealLibrary',
+    ];
+    if (
+      !bridge.frozen ||
+      !bridge.callbackTypeRejected ||
+      JSON.stringify(bridge.methods) !== JSON.stringify(expectedMethods)
+    )
+      throw new Error(
+        'Actual preload bridge differs from its fixed API inventory.',
+      );
+    await this.menuRefresh(window);
     await this.appearances(window, 'window', 'First launch / Library');
     // eslint-disable-next-line no-restricted-syntax -- Navigate the same real renderer in sequence.
     for (const page of ['Emulators', 'This Mac', 'Development']) {
@@ -353,11 +428,38 @@ export default class SmokeHarness {
     );
     await fs.rename(`${fixtureLibrary} disconnected`, fixtureLibrary);
 
+    window.webContents.setZoomFactor(2);
+    await window.webContents.executeJavaScript(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+    );
+    const scrolled = await window.webContents.executeJavaScript(`(() => {
+      document.querySelector('button[aria-label="Refresh status"]').focus();
+      window.__smokeErrorFocus = document.activeElement;
+      const main = document.querySelector('main');
+      main.scrollTop = main.scrollHeight;
+      return main.scrollTop > 0;
+    })()`);
+    if (!scrolled)
+      throw new Error('Error reveal smoke requires overflowing main content.');
     await fs.writeFile(statePath, '{malformed smoke-only fixture');
     await this.refresh(
       window,
       `document.querySelector('[role="alert"]')?.textContent.includes('Library settings could not be read')`,
       'malformed library settings error',
+    );
+    await this.waitFor(
+      window,
+      `(() => {
+        const alert = document.querySelector('[role="alert"]');
+        if (!alert) return false;
+        const bounds = alert.getBoundingClientRect();
+        const viewport = document.querySelector('main').getBoundingClientRect();
+        return bounds.top >= viewport.top - 1 && bounds.top < viewport.bottom && document.activeElement === window.__smokeErrorFocus;
+      })()`,
+      'new error revealed at 200 percent zoom without moving keyboard focus',
+    );
+    await window.webContents.executeJavaScript(
+      'delete window.__smokeErrorFocus',
     );
     await this.appearances(
       window,
@@ -469,6 +571,7 @@ export default class SmokeHarness {
     await this.finish(
       {
         status,
+        bridge,
         webPreferences: preferences,
         screenshots: this.captures.map((capture) => capture.filename),
         captures: this.captures,
@@ -482,6 +585,9 @@ export default class SmokeHarness {
           nativeWindowChrome: false,
           voiceOver: false,
           zoomActionsKeyboardReachable: true,
+          menuRefreshPreservesPageAndFocus: true,
+          refreshSubscriptionCleanup: true,
+          newErrorRevealedWithoutFocus: true,
         },
       },
       this.errors.length === 0,

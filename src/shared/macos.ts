@@ -38,6 +38,7 @@ export type LibraryResult =
 
 export interface MacAPI {
   getStatus(): Promise<MacStatus>;
+  onRefreshStatus(callback: () => void): () => void;
   chooseLibrary(): Promise<LibraryResult>;
   revealLibrary(): Promise<ActionResult>;
   installDolphin(): Promise<ActionResult>;

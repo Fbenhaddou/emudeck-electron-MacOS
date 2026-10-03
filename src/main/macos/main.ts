@@ -44,7 +44,12 @@ if (smokeDirectory) {
   app.setPath('userData', path.join(candidate, 'user-data'));
 }
 
-const smoke = smokeDirectory ? new SmokeHarness(smokeDirectory) : null;
+// Interactive native review keeps the same isolated test data and real bridge,
+// but lets the reviewer control the window instead of running synthetic captures.
+const smoke =
+  smokeDirectory && process.env.EMULATION_SMOKE_INTERACTIVE !== '1'
+    ? new SmokeHarness(smokeDirectory)
+    : null;
 const statePath = path.join(app.getPath('userData'), 'library.json');
 const rendererURL =
   process.env.NODE_ENV === 'development'
@@ -385,6 +390,13 @@ function denyPermission(
   callback(false);
 }
 
+function refreshStatusFromMenu(): void {
+  const contents = mainWindow?.webContents;
+  if (!contents || !isTrustedDocument(contents.mainFrame.url, rendererURL))
+    return;
+  contents.send('mac:refresh-status');
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
@@ -446,8 +458,34 @@ if (!app.requestSingleInstanceLock()) {
               { role: 'quit' },
             ],
           },
+          {
+            label: 'File',
+            submenu: [{ role: 'close', accelerator: 'CmdOrCtrl+W' }],
+          },
           { role: 'editMenu' },
-          { role: 'viewMenu' },
+          {
+            label: 'View',
+            submenu: [
+              {
+                id: 'mac-refresh-status',
+                label: 'Refresh Status',
+                accelerator: 'CmdOrCtrl+R',
+                click: refreshStatusFromMenu,
+              },
+              { type: 'separator' },
+              { role: 'resetZoom' },
+              { role: 'zoomIn' },
+              { role: 'zoomOut' },
+              { type: 'separator' },
+              { role: 'togglefullscreen' },
+              ...(process.env.NODE_ENV === 'development'
+                ? ([
+                    { type: 'separator' },
+                    { role: 'toggleDevTools' },
+                  ] as Electron.MenuItemConstructorOptions[])
+                : []),
+            ],
+          },
           { role: 'windowMenu' },
         ]),
       );

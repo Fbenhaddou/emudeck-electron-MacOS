@@ -8,6 +8,19 @@ const api: MacAPI = Object.freeze({
   recoverLibrarySettings: () =>
     ipcRenderer.invoke('mac:recover-library-settings'),
   getStatus: () => ipcRenderer.invoke('mac:status'),
+  onRefreshStatus: (callback: () => void) => {
+    if (typeof callback !== 'function')
+      throw new TypeError('Refresh status callback must be a function.');
+    // Do not expose Electron's event or any payload to the renderer.
+    const listener = () => callback();
+    ipcRenderer.on('mac:refresh-status', listener);
+    let subscribed = true;
+    return () => {
+      if (!subscribed) return;
+      subscribed = false;
+      ipcRenderer.removeListener('mac:refresh-status', listener);
+    };
+  },
   chooseLibrary: () => ipcRenderer.invoke('mac:choose-library'),
   revealLibrary: () => ipcRenderer.invoke('mac:reveal-library'),
 });

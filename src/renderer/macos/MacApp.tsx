@@ -28,6 +28,8 @@ export default function MacApp() {
   const [statusError, setStatusError] = useState('');
   const mounted = useRef(true);
   const mainContent = useRef<HTMLElement | null>(null);
+  const errorMessage = useRef<HTMLDivElement | null>(null);
+  const libraryErrorMessage = useRef<HTMLDivElement | null>(null);
   const statusRequest = useRef<Promise<void> | null>(null);
   const refresh = useCallback(() => {
     if (statusRequest.current) return statusRequest.current;
@@ -54,11 +56,29 @@ export default function MacApp() {
   }, []);
   useEffect(() => {
     mounted.current = true;
+    const unsubscribe = window.mac.onRefreshStatus(() => {
+      void refresh();
+    });
     void refresh();
     return () => {
       mounted.current = false;
+      unsubscribe();
     };
   }, [refresh]);
+  const visibleError = error || statusError;
+  const visibleLibraryError =
+    page === 'Library' ? status?.libraryError || '' : '';
+  useEffect(() => {
+    const alert = visibleError
+      ? errorMessage.current
+      : libraryErrorMessage.current;
+    const main = mainContent.current;
+    if (!(visibleError || visibleLibraryError) || !alert || !main) return;
+    const bounds = alert.getBoundingClientRect();
+    const viewport = main.getBoundingClientRect();
+    if (bounds.top < viewport.top || bounds.bottom > viewport.bottom)
+      main.scrollTop = Math.max(0, main.scrollTop + bounds.top - viewport.top);
+  }, [visibleError, visibleLibraryError]);
   const busy = action !== null;
   const dolphinOperation = status?.dolphin.operation || 'idle';
   useEffect(() => {
@@ -214,9 +234,9 @@ export default function MacApp() {
           ref={mainContent}
           aria-busy={!status && !statusError}
         >
-          {(error || statusError) && (
-            <div className="error" role="alert">
-              {error || statusError}
+          {visibleError && (
+            <div ref={errorMessage} className="error" role="alert">
+              {visibleError}
             </div>
           )}
           {!status ? (
@@ -291,6 +311,7 @@ export default function MacApp() {
                   </section>
                   {status.libraryError && (
                     <div
+                      ref={libraryErrorMessage}
                       role="alert"
                       className="error"
                       aria-busy={action === 'recovering-library'}

@@ -77,6 +77,16 @@ async function run() {
     );
   }
   const preferences = report.webPreferences || {};
+  const bridgeMethods = [
+    'chooseLibrary',
+    'getStatus',
+    'installDolphin',
+    'onRefreshStatus',
+    'playGame',
+    'recoverLibrarySettings',
+    'resetDolphin',
+    'revealLibrary',
+  ];
   const expectedScreenshots = [
     ...[
       'window',
@@ -105,6 +115,9 @@ async function run() {
     preferences.contextIsolation !== true ||
     preferences.nodeIntegration !== false ||
     preferences.webSecurity !== true ||
+    report.bridge?.frozen !== true ||
+    report.bridge?.callbackTypeRejected !== true ||
+    JSON.stringify(report.bridge?.methods) !== JSON.stringify(bridgeMethods) ||
     report.status?.platform !== 'darwin' ||
     !report.status?.appVersion ||
     !Array.isArray(report.screenshots) ||
@@ -118,6 +131,9 @@ async function run() {
     report.coverage?.fixturesInsideIsolatedUserData !== true ||
     report.coverage?.syntheticInstalledState !== true ||
     report.coverage?.zoomActionsKeyboardReachable !== true ||
+    report.coverage?.menuRefreshPreservesPageAndFocus !== true ||
+    report.coverage?.refreshSubscriptionCleanup !== true ||
+    report.coverage?.newErrorRevealedWithoutFocus !== true ||
     !report.coverage?.syntheticFixtureNote ||
     !Array.isArray(report.captures) ||
     report.captures.length !== expectedScreenshots.length ||
