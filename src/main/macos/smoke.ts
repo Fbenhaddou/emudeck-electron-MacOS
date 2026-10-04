@@ -305,6 +305,11 @@ export default class SmokeHarness {
     statePath: string,
     getStatus: () => Promise<MacStatus>,
   ): Promise<void> {
+    // capturePage omits the native vibrancy layer; paint its reduced-transparency
+    // equivalent so sidebar contrast in screenshots matches what users see.
+    await window.webContents.insertCSS(
+      '.sidebar { background: light-dark(#e8e8ea, #2a2a2c); }',
+    );
     const directory = await fs.realpath(this.directory);
     const userData = path.join(directory, 'user-data');
     if (
@@ -504,7 +509,7 @@ export default class SmokeHarness {
     await this.navigate(window, 'Emulators');
     await this.refresh(
       window,
-      `document.querySelector('main')?.textContent.includes('Version 2509 installed')`,
+      `document.querySelector('main')?.textContent.includes('GameCube · Version 2509')`,
       'synthetic installed rendering fixture',
     );
     await this.appearances(

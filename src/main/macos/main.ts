@@ -7,6 +7,7 @@ import {
   screen,
   session,
   shell,
+  systemPreferences,
 } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import os from 'os';
@@ -346,8 +347,12 @@ function createWindow(): void {
     minWidth: 760,
     minHeight: 560,
     show: false,
-    titleBarStyle: 'hiddenInset',
-    backgroundColor: '#f5f5f7',
+    titleBarStyle: 'hidden',
+    // Center the traffic lights in the 52pt unified toolbar.
+    trafficLightPosition: { x: 20, y: 19 },
+    vibrancy: 'sidebar',
+    visualEffectState: 'followWindow',
+    backgroundColor: '#00000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       sandbox: true,
@@ -367,6 +372,30 @@ function createWindow(): void {
     if (mainWindow === window) mainWindow = null;
   });
   window.once('ready-to-show', () => window.show());
+  let accentKey: string | undefined;
+  const applyAccent = async () => {
+    if (window.isDestroyed()) return;
+    // getAccentColor returns RRGGBBAA; only a validated hex reaches insertCSS.
+    const color = systemPreferences.getAccentColor().slice(0, 6);
+    if (!/^[0-9a-f]{6}$/i.test(color)) return;
+    const previous = accentKey;
+    accentKey = await window.webContents.insertCSS(
+      `:root { --accent: #${color}; }`,
+    );
+    if (previous) await window.webContents.removeInsertedCSS(previous);
+  };
+  window.webContents.on('did-finish-load', () => {
+    void applyAccent().catch(() => undefined);
+  });
+  const accentSubscription = systemPreferences.subscribeNotification(
+    'AppleColorPreferencesChangedNotification',
+    () => {
+      void applyAccent().catch(() => undefined);
+    },
+  );
+  window.once('closed', () =>
+    systemPreferences.unsubscribeNotification(accentSubscription),
+  );
   smoke?.observe(window);
   window.webContents.once('did-finish-load', () => {
     void smoke

@@ -124,6 +124,11 @@ function createFixture() {
       setApplicationMenu: jest.fn(),
     },
     nativeTheme: {},
+    systemPreferences: {
+      getAccentColor: jest.fn(() => '007affff'),
+      subscribeNotification: jest.fn(() => 1),
+      unsubscribeNotification: jest.fn(),
+    },
     screen: {
       getAllDisplays: jest.fn(() => [
         {

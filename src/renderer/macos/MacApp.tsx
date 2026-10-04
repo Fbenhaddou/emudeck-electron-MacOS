@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import type { MacAPI, MacStatus } from '../../shared/macos';
 
 declare global {
@@ -13,6 +14,11 @@ type Action =
   | 'installing'
   | 'choosing-game'
   | 'resetting';
+const sections: { title: string; pages: Page[] }[] = [
+  { title: 'Workspace', pages: ['Library', 'Emulators'] },
+  { title: 'System', pages: ['This Mac', 'Development'] },
+];
+const pages = sections.flatMap((section) => section.pages);
 const icons: Record<Page, string> = {
   Library: 'M3 7V5h6l2 2h10v13H3V7Z',
   Emulators: 'M6 7h12l3 10-3 2-4-4h-4l-4 4-3-2L6 7Zm1 4h4m-2-2v4m7-3h.1m2 2h.1',
@@ -20,16 +26,78 @@ const icons: Record<Page, string> = {
   Development: 'M8 5 2 12l6 7m8-14 6 7-6 7M14 3l-4 18',
 };
 
+function Symbol({ page }: { page: Page }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d={icons[page]} />
+    </svg>
+  );
+}
+
+/** System Settings–style pane header: tinted symbol tile, title and summary. */
+function Hero({
+  page,
+  tint,
+  title,
+  children,
+}: {
+  page: Page;
+  tint: string;
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="group hero" aria-label={title}>
+      <span className={`tile ${tint}`}>
+        <Symbol page={page} />
+      </span>
+      <h2>{title}</h2>
+      <p>{children}</p>
+    </section>
+  );
+}
+
+/** Indeterminate progress, drawn like NSProgressIndicator's spinning style. */
+function Spinner() {
+  return (
+    <svg className="spinner" viewBox="0 0 16 16" aria-hidden="true">
+      {Array.from({ length: 8 }, (_, index) => (
+        <rect
+          // eslint-disable-next-line react/no-array-index-key -- Fixed decorative spokes.
+          key={index}
+          x="7.25"
+          y="1"
+          width="1.5"
+          height="4"
+          rx="0.75"
+          transform={`rotate(${index * 45} 8 8)`}
+          opacity={0.25 + (index / 8) * 0.75}
+        />
+      ))}
+    </svg>
+  );
+}
+
 export default function MacApp() {
   const [status, setStatus] = useState<MacStatus | null>(null);
   const [page, setPage] = useState<Page>('Library');
   const [action, setAction] = useState<Action | null>(null);
   const [error, setError] = useState('');
   const [statusError, setStatusError] = useState('');
+  const [windowActive, setWindowActive] = useState(true);
   const mounted = useRef(true);
   const mainContent = useRef<HTMLElement | null>(null);
   const errorMessage = useRef<HTMLDivElement | null>(null);
   const libraryErrorMessage = useRef<HTMLDivElement | null>(null);
+  const navigation = useRef<HTMLElement | null>(null);
   const statusRequest = useRef<Promise<void> | null>(null);
   const refresh = useCallback(() => {
     if (statusRequest.current) return statusRequest.current;
@@ -65,6 +133,17 @@ export default function MacApp() {
       unsubscribe();
     };
   }, [refresh]);
+  useEffect(() => {
+    // Inactive Mac windows dim their selection; mirror the key-window state.
+    const activate = () => setWindowActive(true);
+    const deactivate = () => setWindowActive(false);
+    window.addEventListener('focus', activate);
+    window.addEventListener('blur', deactivate);
+    return () => {
+      window.removeEventListener('focus', activate);
+      window.removeEventListener('blur', deactivate);
+    };
+  }, []);
   const visibleError = error || statusError;
   const visibleLibraryError =
     page === 'Library' ? status?.libraryError || '' : '';
@@ -144,6 +223,29 @@ export default function MacApp() {
       setAction(null);
     }
   };
+  const select = (item: Page) => {
+    if (page !== item && mainContent.current) mainContent.current.scrollTop = 0;
+    setPage(item);
+    setError('');
+  };
+  // A source list is one tab stop; arrow keys move the selection (NSOutlineView).
+  const navigateWithKeys = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const offsets: Record<string, number> = { ArrowUp: -1, ArrowDown: 1 };
+    let next: number | undefined;
+    if (event.key in offsets)
+      next = Math.min(
+        pages.length - 1,
+        Math.max(0, pages.indexOf(page) + offsets[event.key]),
+      );
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = pages.length - 1;
+    if (next === undefined) return;
+    event.preventDefault();
+    select(pages[next]);
+    navigation.current
+      ?.querySelector<HTMLButtonElement>(`[data-page="${pages[next]}"]`)
+      ?.focus();
+  };
   const emulatorBusy =
     busy || Boolean(status && status.dolphin.operation !== 'idle');
   const choosingLibrary = action === 'choosing-library';
@@ -165,40 +267,41 @@ export default function MacApp() {
     operationMessage = operationMessages[action];
   else if (action === 'choosing-game')
     operationMessage = 'Choose a game in the file dialog.';
+  const showSpinner =
+    Boolean(operationMessage) &&
+    dolphinOperation !== 'running' &&
+    action !== 'choosing-game';
   return (
-    <div className="workspace" data-ready={status ? 'true' : 'false'}>
+    <div
+      className="workspace"
+      data-ready={status ? 'true' : 'false'}
+      data-window-active={windowActive ? 'true' : 'false'}
+    >
       <aside className="sidebar" aria-label="Workspace navigation">
-        <div className="sidebar-title">Emulation Workspace</div>
-        <nav>
-          {(['Library', 'Emulators', 'This Mac', 'Development'] as Page[]).map(
-            (item) => (
-              <button
-                type="button"
-                key={item}
-                aria-current={page === item ? 'page' : undefined}
-                onClick={() => {
-                  if (page !== item && mainContent.current)
-                    mainContent.current.scrollTop = 0;
-                  setPage(item);
-                  setError('');
-                }}
-              >
-                <span className="nav-symbol" aria-hidden="true">
-                  <svg
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                  >
-                    <path d={icons[item]} />
-                  </svg>
-                </span>
-                {item}
-              </button>
-            ),
-          )}
+        <nav ref={navigation}>
+          {sections.map((section) => (
+            <div className="sidebar-section" key={section.title}>
+              <div className="sidebar-title" aria-hidden="true">
+                {section.title}
+              </div>
+              {section.pages.map((item) => (
+                <button
+                  type="button"
+                  key={item}
+                  data-page={item}
+                  tabIndex={page === item ? 0 : -1}
+                  aria-current={page === item ? 'page' : undefined}
+                  onClick={() => select(item)}
+                  onKeyDown={navigateWithKeys}
+                >
+                  <span className="nav-symbol" aria-hidden="true">
+                    <Symbol page={item} />
+                  </span>
+                  {item}
+                </button>
+              ))}
+            </div>
+          ))}
         </nav>
         <div className="sidebar-footer">
           Development Preview
@@ -208,7 +311,7 @@ export default function MacApp() {
       </aside>
       <div className="detail">
         <header className="toolbar">
-          <strong>{page}</strong>
+          <h1>{page}</h1>
           <button
             type="button"
             onClick={() => {
@@ -223,7 +326,8 @@ export default function MacApp() {
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="1.6"
+              strokeWidth="1.7"
+              strokeLinecap="round"
             >
               <path d="M20 10a8 8 0 1 0-2 8M20 4v6h-6" />
             </svg>
@@ -234,296 +338,342 @@ export default function MacApp() {
           ref={mainContent}
           aria-busy={!status && !statusError}
         >
-          {visibleError && (
-            <div ref={errorMessage} className="error" role="alert">
-              {visibleError}
-            </div>
-          )}
-          {!status ? (
-            !statusError && <p role="status">Reading your Mac…</p>
-          ) : (
-            <>
-              {page === 'Library' && (
-                <>
-                  <h1>
-                    {status.library ? 'Your Library' : 'Set Up Your Library'}
-                  </h1>
-                  <p className="intro">
-                    Choose a folder on your Mac or an external drive for your
-                    emulation library.
-                  </p>
-                  <section
-                    className="settings-group"
-                    aria-label="Library location"
-                    aria-busy={choosingLibrary}
-                  >
-                    <div className="setting-row">
-                      <div>
-                        <h2>Library location</h2>
-                        <p className="path" title={status.library?.path}>
-                          {status.library?.path || 'No folder selected'}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className={
-                          status.library || status.libraryError ? '' : 'primary'
-                        }
-                        disabled={
-                          busy ||
-                          dolphinOperation !== 'idle' ||
-                          Boolean(status.libraryError)
-                        }
-                        onClick={() => {
-                          void choose();
-                        }}
-                      >
-                        {status.library && !choosingLibrary
-                          ? 'Change…'
-                          : chooseLabel}
-                      </button>
-                    </div>
-                    {status.library && (
-                      <div className="setting-row">
-                        <div>
-                          <h2>
-                            {status.library.available
-                              ? 'Folder available'
-                              : 'Folder unavailable'}
-                          </h2>
-                          <p>
-                            {status.library.available
-                              ? 'Your library location is saved on this Mac.'
-                              : 'Reconnect your drive, then refresh to check again.'}
+          <div className="pane">
+            {visibleError && (
+              <div ref={errorMessage} className="error" role="alert">
+                <span className="error-symbol" aria-hidden="true">
+                  !
+                </span>
+                <p>{visibleError}</p>
+              </div>
+            )}
+            {!status ? (
+              !statusError && (
+                <p role="status" className="loading">
+                  <Spinner />
+                  Reading your Mac…
+                </p>
+              )
+            ) : (
+              <>
+                {page === 'Library' && (
+                  <>
+                    <Hero
+                      page="Library"
+                      tint="blue"
+                      title={
+                        status.library ? 'Your Library' : 'Set Up Your Library'
+                      }
+                    >
+                      Choose a folder on your Mac or an external drive for your
+                      emulation library.
+                    </Hero>
+                    <section
+                      className="group"
+                      aria-label="Library location"
+                      aria-busy={choosingLibrary}
+                    >
+                      <div className="row">
+                        <div className="row-text">
+                          <h3>Library location</h3>
+                          <p className="path" title={status.library?.path}>
+                            {status.library?.path || 'No folder selected'}
                           </p>
                         </div>
                         <button
                           type="button"
-                          disabled={!status.library.available}
+                          className={
+                            status.library || status.libraryError
+                              ? ''
+                              : 'primary'
+                          }
+                          disabled={
+                            busy ||
+                            dolphinOperation !== 'idle' ||
+                            Boolean(status.libraryError)
+                          }
                           onClick={() => {
-                            void reveal();
+                            void choose();
                           }}
                         >
-                          Show in Finder
+                          {status.library && !choosingLibrary
+                            ? 'Change…'
+                            : chooseLabel}
                         </button>
                       </div>
-                    )}
-                  </section>
-                  {status.libraryError && (
-                    <div
-                      ref={libraryErrorMessage}
-                      role="alert"
-                      className="error"
-                      aria-busy={action === 'recovering-library'}
-                    >
-                      <p className="recovery-message">{status.libraryError}</p>
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={emulatorBusy}
-                        onClick={() => {
-                          void operate('recovering-library', () =>
-                            window.mac.recoverLibrarySettings(),
-                          );
-                        }}
-                      >
-                        {action === 'recovering-library'
-                          ? 'Recovering…'
-                          : 'Recover Library Settings…'}
-                      </button>
-                    </div>
-                  )}
-                  <p className="footnote">
-                    Choosing a folder saves its location. Your games and saves
-                    stay where they are.
-                  </p>
-                  <p className="preview-note">
-                    Select Emulators to install Dolphin for GameCube.
-                  </p>
-                </>
-              )}
-              {page === 'Emulators' && (
-                <>
-                  <h1>Emulators</h1>
-                  <p className="intro">
-                    Dolphin brings GameCube games and homebrew to your Mac. Add
-                    your own legally obtained games.
-                  </p>
-                  <section
-                    className="settings-group"
-                    aria-label="Dolphin management"
-                    aria-busy={
-                      busy ||
-                      (dolphinOperation !== 'idle' &&
-                        dolphinOperation !== 'running')
-                    }
-                  >
-                    <div className="setting-row">
-                      <div>
-                        <h2>Dolphin · GameCube</h2>
-                        <p>
-                          {status.dolphin.version
-                            ? `Version ${status.dolphin.version} installed`
-                            : 'Official Universal build · Native Apple Silicon'}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        className="primary"
-                        disabled={emulatorBusy || !status.library?.available}
-                        onClick={() => {
-                          void operate('installing', () =>
-                            window.mac.installDolphin(),
-                          );
-                        }}
-                      >
-                        {status.dolphin.version
-                          ? 'Update Dolphin'
-                          : 'Install Dolphin'}
-                      </button>
-                    </div>
-                    {status.dolphin.version && (
-                      <div className="setting-row">
-                        <div>
-                          <h2>Play a game</h2>
-                          <p>
-                            Add GameCube games to your library’s roms/gc folder.
-                          </p>
+                      {status.library && (
+                        <div className="row">
+                          <div className="row-text">
+                            <h3>
+                              <span
+                                className={`indicator ${status.library.available ? 'on' : 'off'}`}
+                                aria-hidden="true"
+                              />
+                              {status.library.available
+                                ? 'Folder available'
+                                : 'Folder unavailable'}
+                            </h3>
+                            <p>
+                              {status.library.available
+                                ? 'Your library location is saved on this Mac.'
+                                : 'Reconnect your drive, then refresh to check again.'}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            disabled={!status.library.available}
+                            onClick={() => {
+                              void reveal();
+                            }}
+                          >
+                            Show in Finder
+                          </button>
                         </div>
+                      )}
+                    </section>
+                    {status.libraryError && (
+                      <div
+                        ref={libraryErrorMessage}
+                        role="alert"
+                        className="error"
+                        aria-busy={action === 'recovering-library'}
+                      >
+                        <span className="error-symbol" aria-hidden="true">
+                          !
+                        </span>
+                        <p className="recovery-message">
+                          {status.libraryError}
+                        </p>
                         <button
                           type="button"
-                          disabled={emulatorBusy || !status.library?.available}
+                          className="primary"
+                          disabled={emulatorBusy}
                           onClick={() => {
-                            void operate('choosing-game', () =>
-                              window.mac.playGame(),
+                            void operate('recovering-library', () =>
+                              window.mac.recoverLibrarySettings(),
                             );
                           }}
                         >
-                          Choose Game…
+                          {action === 'recovering-library'
+                            ? 'Recovering…'
+                            : 'Recover Library Settings…'}
                         </button>
                       </div>
                     )}
-                  </section>
-                  {!status.library?.available && (
                     <p className="footnote">
-                      Choose an available library in Library to continue.
+                      Choosing a folder saves its location. Your games and saves
+                      stay where they are.
                     </p>
-                  )}
-                  {operationMessage && (
-                    <p role="status" className="footnote">
-                      {operationMessage}
-                    </p>
-                  )}
-                  <p className="footnote">
-                    Downloads come from Dolphin’s official release server. macOS
-                    verifies the application before it is installed.
-                  </p>
-                  {status.dolphin.version && (
-                    <details className="advanced">
-                      <summary>Advanced</summary>
-                      <p>
-                        Reset emulator settings while keeping games, memory
-                        cards, and save states. Existing settings are kept in a
-                        backup folder.
+                    {status.library?.available && !status.dolphin.version && (
+                      <p className="footnote">
+                        Next, open Emulators to install Dolphin for GameCube.
                       </p>
-                      <button
-                        type="button"
-                        disabled={emulatorBusy || !status.library?.available}
-                        onClick={() => {
-                          void operate('resetting', () =>
-                            window.mac.resetDolphin(),
-                          );
-                        }}
-                      >
-                        Reset Dolphin Settings…
-                      </button>
-                    </details>
-                  )}
-                  <p className="preview-note">
-                    Console Mode and controller configuration are still in
-                    development.
-                  </p>
-                </>
-              )}
-              {page === 'This Mac' && (
-                <>
-                  <h1>This Mac</h1>
-                  <p className="intro">Capabilities reported by this Mac.</p>
-                  <dl className="facts">
-                    <div>
-                      <dt>Architecture</dt>
-                      <dd>
-                        {status.architecture === 'arm64'
-                          ? 'Apple Silicon · ARM64'
-                          : status.architecture}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>macOS</dt>
-                      <dd>{status.osVersion}</dd>
-                    </div>
-                    <div>
-                      <dt>Memory</dt>
-                      <dd>{Math.round(status.memoryBytes / 1024 ** 3)} GB</dd>
-                    </div>
-                    {status.displays.map((display, index) => (
-                      <div
-                        key={`${display.width}-${display.height}-${display.scaleFactor}`}
-                      >
-                        <dt>Display {index + 1}</dt>
+                    )}
+                  </>
+                )}
+                {page === 'Emulators' && (
+                  <>
+                    <Hero page="Emulators" tint="indigo" title="Emulators">
+                      Dolphin brings GameCube games and homebrew to your Mac.
+                      Add your own legally obtained games.
+                    </Hero>
+                    <section
+                      className="group"
+                      aria-label="Dolphin management"
+                      aria-busy={
+                        busy ||
+                        (dolphinOperation !== 'idle' &&
+                          dolphinOperation !== 'running')
+                      }
+                    >
+                      <div className="row">
+                        <span className="tile small indigo" aria-hidden="true">
+                          <Symbol page="Emulators" />
+                        </span>
+                        <div className="row-text">
+                          <h3>Dolphin</h3>
+                          <p>
+                            {status.dolphin.version
+                              ? `GameCube · Version ${status.dolphin.version}`
+                              : 'GameCube · Official Universal build · Native Apple Silicon'}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          className={status.dolphin.version ? '' : 'primary'}
+                          disabled={emulatorBusy || !status.library?.available}
+                          onClick={() => {
+                            void operate('installing', () =>
+                              window.mac.installDolphin(),
+                            );
+                          }}
+                        >
+                          {status.dolphin.version
+                            ? 'Update Dolphin'
+                            : 'Install Dolphin'}
+                        </button>
+                      </div>
+                      {operationMessage && (
+                        <div className="row progress" role="status">
+                          {showSpinner && <Spinner />}
+                          <p>{operationMessage}</p>
+                        </div>
+                      )}
+                      {status.dolphin.version && (
+                        <div className="row">
+                          <div className="row-text">
+                            <h3>Play a game</h3>
+                            <p>
+                              Add GameCube games to your library’s roms/gc
+                              folder.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            className="primary"
+                            disabled={
+                              emulatorBusy || !status.library?.available
+                            }
+                            onClick={() => {
+                              void operate('choosing-game', () =>
+                                window.mac.playGame(),
+                              );
+                            }}
+                          >
+                            Choose Game…
+                          </button>
+                        </div>
+                      )}
+                    </section>
+                    {!status.library?.available && (
+                      <p className="footnote">
+                        Choose an available library in Library to continue.
+                      </p>
+                    )}
+                    <p className="footnote">
+                      Downloads come from Dolphin’s official release server.
+                      macOS verifies the application before it is installed.
+                    </p>
+                    {status.dolphin.version && (
+                      <details className="advanced">
+                        <summary>Advanced</summary>
+                        <section className="group" aria-label="Advanced">
+                          <div className="row">
+                            <div className="row-text">
+                              <h3>Reset Dolphin settings</h3>
+                              <p>
+                                Keeps games, memory cards, and save states.
+                                Existing settings are kept in a backup folder.
+                              </p>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={
+                                emulatorBusy || !status.library?.available
+                              }
+                              onClick={() => {
+                                void operate('resetting', () =>
+                                  window.mac.resetDolphin(),
+                                );
+                              }}
+                            >
+                              Reset Dolphin Settings…
+                            </button>
+                          </div>
+                        </section>
+                      </details>
+                    )}
+                    <p className="footnote">
+                      Console Mode and controller configuration are still in
+                      development.
+                    </p>
+                  </>
+                )}
+                {page === 'This Mac' && (
+                  <>
+                    <Hero page="This Mac" tint="gray" title="This Mac">
+                      Capabilities reported by this Mac. Emulator settings are
+                      chosen from these, not from the model name.
+                    </Hero>
+                    <dl className="group facts">
+                      <div>
+                        <dt>Architecture</dt>
                         <dd>
-                          {display.width} × {display.height} points ·{' '}
-                          {display.scaleFactor}×
-                          {display.refreshRate
-                            ? ` · ${display.refreshRate} Hz`
-                            : ''}
+                          {status.architecture === 'arm64'
+                            ? 'Apple Silicon · ARM64'
+                            : status.architecture}
                         </dd>
                       </div>
-                    ))}
-                  </dl>
-                  <p className="footnote">
-                    HDR and advanced controller capabilities have not been
-                    verified.
-                  </p>
-                </>
-              )}
-              {page === 'Development' && (
-                <>
-                  <h1>Development Status</h1>
-                  <p className="intro">
-                    This preview establishes the macOS foundation. It is not
-                    ready to manage a game collection.
-                  </p>
-                  <dl className="facts">
-                    <div>
-                      <dt>Library selection</dt>
-                      <dd>Available</dd>
-                    </div>
-                    <div>
-                      <dt>Dolphin installation</dt>
-                      <dd>Preview</dd>
-                    </div>
-                    <div>
-                      <dt>Console Mode · ES-DE</dt>
-                      <dd>Planned</dd>
-                    </div>
-                    <div>
-                      <dt>Controller support</dt>
-                      <dd>Not tested</dd>
-                    </div>
-                    <div>
-                      <dt>Signed distribution</dt>
-                      <dd>Not configured</dd>
-                    </div>
-                  </dl>
-                  <p className="footnote">
-                    Independent development project. Not an official EmuDeck or
-                    RetroDECK product.
-                  </p>
-                </>
-              )}
-            </>
-          )}
+                      <div>
+                        <dt>macOS</dt>
+                        <dd>{status.osVersion}</dd>
+                      </div>
+                      <div>
+                        <dt>Memory</dt>
+                        <dd>{Math.round(status.memoryBytes / 1024 ** 3)} GB</dd>
+                      </div>
+                      {status.displays.map((display, index) => (
+                        <div
+                          key={`${display.width}-${display.height}-${display.scaleFactor}`}
+                        >
+                          <dt>Display {index + 1}</dt>
+                          <dd>
+                            {display.width} × {display.height} points ·{' '}
+                            {display.scaleFactor}×
+                            {display.refreshRate
+                              ? ` · ${display.refreshRate} Hz`
+                              : ''}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <p className="footnote">
+                      HDR and advanced controller capabilities have not been
+                      verified.
+                    </p>
+                  </>
+                )}
+                {page === 'Development' && (
+                  <>
+                    <Hero
+                      page="Development"
+                      tint="orange"
+                      title="Development Status"
+                    >
+                      This preview establishes the macOS foundation. It is not
+                      ready to manage a game collection.
+                    </Hero>
+                    <dl className="group facts">
+                      <div>
+                        <dt>Library selection</dt>
+                        <dd>Available</dd>
+                      </div>
+                      <div>
+                        <dt>Dolphin installation</dt>
+                        <dd>Preview</dd>
+                      </div>
+                      <div>
+                        <dt>Console Mode · ES-DE</dt>
+                        <dd>Planned</dd>
+                      </div>
+                      <div>
+                        <dt>Controller support</dt>
+                        <dd>Not tested</dd>
+                      </div>
+                      <div>
+                        <dt>Signed distribution</dt>
+                        <dd>Not configured</dd>
+                      </div>
+                    </dl>
+                    <p className="footnote">
+                      Independent development project. Not an official EmuDeck
+                      or RetroDECK product.
+                    </p>
+                  </>
+                )}
+              </>
+            )}
+          </div>
         </main>
       </div>
     </div>
