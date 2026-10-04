@@ -34,7 +34,35 @@ func executablePath(_ pid: pid_t) throws -> String {
     return String(cString: buffer)
 }
 
-func validatedApplication() throws -> NSRunningApplication {
+/// Process identity that survives PID reuse: a recycled PID has a later start
+/// time. (The kernel's unique-ID query is private SPI, so it is not used.)
+func uniqueID(_ pid: pid_t) throws -> UInt64 {
+    var info = kinfo_proc()
+    var size = MemoryLayout<kinfo_proc>.stride
+    var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+    try require(sysctl(&name, 4, &info, &size, nil, 0) == 0 && size > 0 && info.kp_proc.p_pid == pid)
+    let start = info.kp_proc.p_starttime
+    return UInt64(start.tv_sec) &* 1_000_000 &+ UInt64(start.tv_usec)
+}
+
+struct Target {
+    let application: NSRunningApplication
+    let pid: pid_t
+    let unique: UInt64
+    let bundle: String
+}
+
+/// Every check describes the same process: the unique ID is taken first and
+/// re-checked after the others, so PID reuse between lookups is detected.
+func verify(_ pid: pid_t, _ bundle: String, _ unique: UInt64) throws {
+    try require(try ownerUID(pid) == geteuid())
+    // The running executable must live inside the exact managed bundle.
+    let executable = try canonicalPath(try executablePath(pid))
+    try require(executable.hasPrefix(bundle + "/Contents/MacOS/"))
+    try require(try uniqueID(pid) == unique)
+}
+
+func validatedApplication() throws -> Target {
     let args = CommandLine.arguments
     try require(args.count == 5 && args[1] == "--pid" && args[3] == "--bundle")
     try require(args[2].range(of: "^[1-9][0-9]{0,6}$", options: .regularExpression) != nil)
@@ -42,15 +70,15 @@ func validatedApplication() throws -> NSRunningApplication {
     try require(args[4].hasPrefix("/") && args[4].hasSuffix(".app"))
     let bundle = try canonicalPath(args[4])
     try require(bundle == args[4])
-    try require(try ownerUID(pid) == geteuid())
-    // The running executable must live inside the exact managed bundle.
-    let executable = try canonicalPath(try executablePath(pid))
-    try require(executable.hasPrefix(bundle + "/Contents/MacOS/"))
+    let unique = try uniqueID(pid)
+    try verify(pid, bundle, unique)
     guard let application = NSRunningApplication(processIdentifier: pid),
+        application.processIdentifier == pid,
         !application.isTerminated,
         let bundleURL = application.bundleURL,
         try canonicalPath(bundleURL.path) == bundle else { throw ActivationFailure.invalid }
-    return application
+    try verify(pid, bundle, unique)
+    return Target(application: application, pid: pid, unique: unique, bundle: bundle)
 }
 
 func isFrontmost(_ application: NSRunningApplication) -> Bool {
@@ -58,9 +86,12 @@ func isFrontmost(_ application: NSRunningApplication) -> Bool {
 }
 
 func activate() throws -> Int32 {
-    let application = try validatedApplication()
+    let target = try validatedApplication()
+    let application = target.application
     for _ in 0..<3 {
         if application.isTerminated { return 1 }
+        // Re-verify immediately before each activation request.
+        do { try verify(target.pid, target.bundle, target.unique) } catch { return 1 }
         _ = application.activate(options: [.activateAllWindows])
         // Poll for up to 0.5s per attempt; activation is asynchronous.
         for _ in 0..<10 {

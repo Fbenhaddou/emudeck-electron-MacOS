@@ -20,10 +20,14 @@ describe('symbolCSS', () => {
     expect(render.mock.calls.map(([name]) => name)).toEqual([
       'folder',
       'gamecontroller',
-      'desktopcomputer',
+      'display',
       'chevron.left.forwardslash.chevron.right',
       'arrow.clockwise',
       'sidebar.left',
+      'folder.fill',
+      'gamecontroller.fill',
+      'display',
+      'chevron.left.forwardslash.chevron.right',
     ]);
     expect(css).toContain(
       '.symbol[data-symbol="library"] { -webkit-mask: url("data:image/png;base64,AAAA")',

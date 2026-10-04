@@ -390,7 +390,9 @@ function createWindow(): void {
     stepZoom(window, direction === 'in' ? 1 : -1);
   });
   let accentKey: string | undefined;
-  const applyAccent = async () => {
+  let symbolKey: string | undefined;
+  let accentChain = Promise.resolve();
+  const applyAccentNow = async () => {
     if (window.isDestroyed()) return;
     // getAccentColor returns RRGGBBAA; only a validated hex reaches insertCSS.
     const color = systemPreferences.getAccentColor().slice(0, 6);
@@ -401,10 +403,23 @@ function createWindow(): void {
     );
     if (previous) await window.webContents.removeInsertedCSS(previous);
   };
+  // Serialized so overlapping notifications cannot orphan an inserted rule.
+  const applyAccent = () => {
+    accentChain = accentChain.then(applyAccentNow, applyAccentNow);
+    return accentChain;
+  };
+  const applySymbols = async () => {
+    if (window.isDestroyed()) return;
+    const previous = symbolKey;
+    symbolKey = await window.webContents.insertCSS(symbolCSS());
+    if (previous) await window.webContents.removeInsertedCSS(previous);
+  };
   window.webContents.on('did-finish-load', () => {
     void applyAccent().catch(() => undefined);
     // Real SF Symbols, rendered by AppKit, replace the fallback vector glyphs.
-    void window.webContents.insertCSS(symbolCSS()).catch(() => undefined);
+    void applySymbols().catch(() => undefined);
+    // A restored zoom level must also move the traffic lights.
+    setWindowZoom(window, window.webContents.getZoomFactor());
   });
   const accentSubscription = systemPreferences.subscribeNotification(
     'AppleColorPreferencesChangedNotification',

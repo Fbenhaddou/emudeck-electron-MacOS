@@ -584,7 +584,12 @@ async function run() {
       const result = await activeGame;
       outcomes.push(result);
       // Restore the frontend before replying: an unfocused ES-DE drops controller input.
-      if (activateHelper && frontend?.pid) {
+      if (
+        activateHelper &&
+        frontend?.pid &&
+        frontend.exitCode === null &&
+        frontend.signalCode === null
+      ) {
         const outcome = await restoreFocus(activateHelper, frontend.pid, bundle);
         observation.focus.push(outcome);
         console.log(`Focus restoration after game exit: ${outcome}`);

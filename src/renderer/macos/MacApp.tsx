@@ -40,9 +40,13 @@ const symbolKeys: Record<Page, string> = {
 };
 
 /** Main masks this with the native SF Symbol when the Mac can render it. */
-function Symbol({ page }: { page: Page }) {
+function Symbol({ page, fill }: { page: Page; fill: boolean }) {
   return (
-    <span className="symbol" data-symbol={symbolKeys[page]} aria-hidden="true">
+    <span
+      className="symbol"
+      data-symbol={`${symbolKeys[page]}${fill ? '-fill' : ''}`}
+      aria-hidden="true"
+    >
       <svg
         aria-hidden="true"
         viewBox="0 0 24 24"
@@ -73,7 +77,7 @@ function Hero({
   return (
     <section className="group hero" aria-label={title}>
       <span className={`tile ${tint}`}>
-        <Symbol page={page} />
+        <Symbol page={page} fill />
       </span>
       <h2>{title}</h2>
       <p>{children}</p>
@@ -335,6 +339,13 @@ export default function MacApp() {
     setPage(item);
     setError('');
     if (narrow) setSidebarOpen(false);
+    // Keep keyboard focus on the selection when the list already had focus.
+    if (navigation.current?.contains(document.activeElement))
+      requestAnimationFrame(() =>
+        navigation.current
+          ?.querySelector<HTMLButtonElement>(`[data-page="${item}"]`)
+          ?.focus(),
+      );
   };
   // A source list is one tab stop; arrow keys move the selection (NSOutlineView).
   const navigateWithKeys = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -409,7 +420,7 @@ export default function MacApp() {
                   onKeyDown={navigateWithKeys}
                 >
                   <span className="nav-symbol" aria-hidden="true">
-                    <Symbol page={item} />
+                    <Symbol page={item} fill={false} />
                   </span>
                   {item}
                 </button>

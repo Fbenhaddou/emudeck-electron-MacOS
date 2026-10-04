@@ -166,6 +166,9 @@ nav button[aria-current] {
 .workspace[data-window-active='true'] nav button[aria-current] .nav-symbol {
   color: #fff;
 }
+nav button:focus-visible {
+  outline: none;
+}
 /* Keyboard focus on the list shows as a ring outside the selected row. */
 nav button[aria-current]:focus-visible {
   outline: 3px solid var(--focus);

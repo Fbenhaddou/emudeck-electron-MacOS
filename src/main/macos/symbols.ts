@@ -8,10 +8,16 @@ import { nativeImage } from 'electron';
 const symbols: Readonly<Record<string, string>> = Object.freeze({
   library: 'folder',
   emulators: 'gamecontroller',
-  'this-mac': 'desktopcomputer',
+  // Outline monitor: a multi-layer symbol would flatten into a filled mask.
+  'this-mac': 'display',
   development: 'chevron.left.forwardslash.chevron.right',
   refresh: 'arrow.clockwise',
   sidebar: 'sidebar.left',
+  // Pane-header tiles use filled glyphs, as System Settings does.
+  'library-fill': 'folder.fill',
+  'emulators-fill': 'gamecontroller.fill',
+  'this-mac-fill': 'display',
+  'development-fill': 'chevron.left.forwardslash.chevron.right',
 });
 
 /**
@@ -27,7 +33,7 @@ export function symbolCSS(
     .map(([key, name]) => {
       const image = render(name);
       if (image.isEmpty()) return '';
-      const url = image.toDataURL({ scaleFactor: 3 });
+      const url = image.toDataURL({ scaleFactor: 6 });
       if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(url)) return '';
       return `.symbol[data-symbol="${key}"] { -webkit-mask: url("${url}") center / contain no-repeat; background: currentColor; }
 .symbol[data-symbol="${key}"] > svg { visibility: hidden; }`;
