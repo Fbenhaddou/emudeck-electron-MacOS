@@ -22,6 +22,7 @@ const {
   prepareDolphinLibrary,
 } = require('../../src/main/macos/dolphin-library');
 const { dolphin } = require('../../src/main/components/dolphin');
+const { restoreFocus } = require('../../src/main/macos/focus');
 
 let root;
 let frontend;
@@ -50,6 +51,9 @@ const startup = new Promise((resolve) => {
   observeStartup = resolve;
 });
 const observation = {
+  // Per-game focus outcomes from the native activation helper, when requested.
+  focus: [],
+  borderless: process.argv.includes('--borderless'),
   ready: false,
   spawned: false,
   startupObserved: false,
@@ -380,6 +384,9 @@ async function run() {
   assert.equal(process.arch, 'arm64');
   const startupSeconds = secondsArgument('--startup-timeout', 45, 300);
   const sessionSeconds = secondsArgument('--session-timeout', 600, 1800);
+  const activateHelper = process.argv.includes('--activate-helper')
+    ? await fs.realpath(argument('--activate-helper'))
+    : null;
   assert.ok(
     sessionSeconds >= startupSeconds,
     'Session timeout must cover startup observation',
@@ -576,6 +583,13 @@ async function run() {
     try {
       const result = await activeGame;
       outcomes.push(result);
+      // Restore the frontend before replying: an unfocused ES-DE drops controller input.
+      if (activateHelper && frontend?.pid) {
+        const outcome = await restoreFocus(activateHelper, frontend.pid, bundle);
+        observation.focus.push(outcome);
+        console.log(`Focus restoration after game exit: ${outcome}`);
+        persistEvidence();
+      }
       return result;
     } catch (error) {
       const failure = sanitize(String(error.message || error)).slice(0, 2048);
@@ -593,11 +607,10 @@ async function run() {
     [
       '--home',
       catalog.home,
-      '--resolution',
-      '960',
-      '640',
-      '--fullscreen-padding',
-      '0',
+      // Without --resolution, ES-DE opens its product borderless display-sized window.
+      ...(observation.borderless
+        ? []
+        : ['--resolution', '960', '640', '--fullscreen-padding', '0']),
       '--no-splash',
       '--no-update-check',
       '--gamelist-only',

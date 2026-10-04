@@ -16,6 +16,16 @@ Development smoke: `PORT=4318 npm run smoke:macos -- --dev`. Run builds sequenti
 
 macos-15 is an ARM64 hosted runner per [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners); workflow execution is not yet verified. Physical controller, VoiceOver, external-volume and signing tests cannot be inferred from CI.
 
+## Smoke harness notes
+
+The smoke run is ~50 s of real captures. Its watchdogs are 110 s (in-app) and 120 s (runner). Focus assertions make the window key first because `:focus-visible` only matches in the key window; earlier failures occurred whenever another app was frontmost. One intermittent mid-run stall (watchdog expiry after ~8 captures) was observed on 2026-10-04 and did not reproduce in 6 later runs; treat a single watchdog failure as a rerun signal, two consecutive failures as a regression. `capturePage` cannot see native vibrancy or window chrome, so the harness paints the reduced-transparency sidebar color; review real window captures (`screencapture -l <window id>`) for material and traffic-light placement.
+
+## Native activation helper
+
+`node .erb/scripts/build-macos-native.js` builds `release/native/activate-app` alongside the console client. `focus.test.ts` exercises its argv contract and, when built, real native refusals (root-owned process, process outside the bundle). The 2026-10-04 manual measurement on macOS 27 activated a background-launched app 6/6 times with Finder or TextEdit frontmost (verified with `lsappinfo front` before and after). This is not yet ES-DE evidence.
+
+To measure real ES-DE return (requires owner approval, because the harness DMG mount answers the ES-DE license prompt): add `--activate-helper release/native/activate-app --borderless` to the `verify-esde-macos.js` command below. Pass only if every recorded `focus` outcome is `frontmost` **and** a physical controller action then changes ES-DE.
+
 ## Private runtime evidence
 
 As of2026-10-03, the scoped Jest suite passed287 tests and the strict Mac typecheck/scoped lint passed. Production, development and packaged smoke each passed40 states, including native Electron's real preload, synthetic busy/error/recovery states and200% text zoom. Simulated installed state in a screenshot does not prove installation; the official Dolphin2609 runtime was tested separately.
