@@ -49,6 +49,8 @@ export interface LaunchRequest {
   libraryRoot: string;
   appBundlePath: string;
   romPath: string;
+  /** Console Mode launches are controller-first: fullscreen, no confirmations. */
+  presentation?: 'window' | 'console';
 }
 
 export interface LaunchPlan {

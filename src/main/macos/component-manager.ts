@@ -166,14 +166,19 @@ export class ComponentManager {
   }
 
   /** A frontend wait client observes this exact child, not a global process scan. */
-  async launchAndWait(library: string, game: string): Promise<DolphinExit> {
-    const session = await this.start(library, game);
+  async launchAndWait(
+    library: string,
+    game: string,
+    presentation: 'window' | 'console' = 'window',
+  ): Promise<DolphinExit> {
+    const session = await this.start(library, game, presentation);
     return session.finished;
   }
 
   private async start(
     library: string,
     game: string,
+    presentation: 'window' | 'console' = 'window',
   ): Promise<{ finished: Promise<DolphinExit> }> {
     await this.begin('launching');
     try {
@@ -190,6 +195,7 @@ export class ComponentManager {
         libraryRoot: library,
         appBundlePath: installed.bundle,
         romPath: rom,
+        presentation,
       });
       let finish!: (result: DolphinExit) => void;
       const finished = new Promise<DolphinExit>((resolve) => {

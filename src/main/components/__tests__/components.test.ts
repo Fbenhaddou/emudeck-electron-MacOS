@@ -76,6 +76,28 @@ test('preserves shell metacharacters as a single argument', () => {
     romPath,
   ]);
 });
+test('console launches override confirmation and fullscreen per launch only', () => {
+  const romPath = `${libraryRoot}/roms/gc/game.iso`;
+  const plan = dolphin.planLaunch({
+    libraryRoot,
+    appBundlePath,
+    romPath,
+    presentation: 'console',
+  });
+  expect(plan.args).toEqual([
+    '--user',
+    `${libraryRoot}/emulators/dolphin/User`,
+    '--config',
+    'Dolphin.Interface.ConfirmStop=False',
+    '--config',
+    'Dolphin.Display.Fullscreen=True',
+    '--batch',
+    '--exec',
+    romPath,
+  ]);
+  // The ROM is still the single final argument after any overrides.
+  expect(plan.args[plan.args.length - 1]).toBe(romPath);
+});
 test('keeps saves and states outside resettable configuration', () => {
   const p = dolphin.paths(libraryRoot);
   expect(p.configuration).toBe(`${p.user}/Config`);

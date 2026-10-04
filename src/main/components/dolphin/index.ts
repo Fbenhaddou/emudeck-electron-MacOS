@@ -54,7 +54,12 @@ function paths(libraryRoot: string): ComponentPaths {
 export const dolphin: ComponentAdapter = Object.freeze({
   manifest,
   paths,
-  planLaunch: ({ libraryRoot, appBundlePath, romPath }: LaunchRequest) => {
+  planLaunch: ({
+    libraryRoot,
+    appBundlePath,
+    romPath,
+    presentation = 'window',
+  }: LaunchRequest) => {
     const directories = paths(libraryRoot);
     const bundle = absolutePath(appBundlePath);
     const rom = absolutePath(romPath);
@@ -72,6 +77,16 @@ export const dolphin: ComponentAdapter = Object.freeze({
       args: Object.freeze([
         '--user',
         directories.user,
+        // Per-launch overrides are never written to the user's Dolphin.ini. A stop
+        // confirmation would strand a controller-only player after quitting.
+        ...(presentation === 'console'
+          ? [
+              '--config',
+              'Dolphin.Interface.ConfirmStop=False',
+              '--config',
+              'Dolphin.Display.Fullscreen=True',
+            ]
+          : []),
         '--batch',
         '--exec',
         rom,
