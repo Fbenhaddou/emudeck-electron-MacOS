@@ -31,3 +31,7 @@ The macOS visual critic recommended disabling page zoom because native apps do n
 ## 008 — Native helpers only where Electron cannot reach
 
 `activate-app` exists because Electron cannot activate another process and ES-DE has no focus restoration, while an unfocused ES-DE ignores controller input. It is a separate single-purpose binary that main invokes with argv; it validates exact PID, owner UID and managed bundle and activates nothing else. SF Symbols are never exported or embedded (licensing ambiguity). Instead main asks AppKit to render the system's own symbols at runtime (`nativeImage.createFromNamedImage`) and injects them as CSS masks via `insertCSS`; fixed names only, base64-PNG-validated, with the original vector glyphs as fallback when a symbol is unavailable.
+
+## 009 — The manager owns its children's privacy identity
+
+macOS attributes a spawned process's protected-resource access (TCC) to the responsible launcher. ES-DE was terminated with SIGABRT when SDL probed Bluetooth controllers from a launcher lacking `NSBluetoothAlwaysUsageDescription`. The packaged app therefore declares every usage key its managed frontends and emulators need, with honest wording (Bluetooth now; camera before PPSSPP ships; microphone if a component emulates one). Developer harnesses that spawn emulators run inside the packaged binary through LaunchServices (`open -n --env ELECTRON_RUN_AS_NODE=1 -a …`) so their identity matches the product.

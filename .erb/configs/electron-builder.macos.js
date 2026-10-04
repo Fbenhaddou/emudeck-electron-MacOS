@@ -72,6 +72,14 @@ module.exports = {
     entitlementsInherit: 'assets/entitlements.mac.plist',
     category: 'public.app-category.utilities',
     minimumSystemVersion: '12.0',
+    // Console Mode frontends and emulators are spawned children, so macOS charges
+    // their privacy access to this app. SDL probes Bluetooth for wireless
+    // controllers; without this key macOS terminates the child (observed with
+    // ES-DE 3.5.0 and two Bluetooth DualSense controllers).
+    extendInfo: {
+      NSBluetoothAlwaysUsageDescription:
+        'Emulation Workspace uses Bluetooth so wireless game controllers such as DualSense work in Console Mode and in games.',
+    },
   },
   dmg: {
     sign: false,

@@ -24,7 +24,13 @@ The smoke run is ~50 s of real captures. Its watchdogs are 110 s (in-app) and 12
 
 `node .erb/scripts/build-macos-native.js` builds `release/native/activate-app` alongside the console client. `focus.test.ts` exercises its argv contract and, when built, real native refusals (root-owned process, process outside the bundle). The 2026-10-04 manual measurement on macOS 27 activated a background-launched app 6/6 times with Finder or TextEdit frontmost (verified with `lsappinfo front` before and after). This is not yet ES-DE evidence.
 
-To measure real ES-DE return (requires owner approval, because the harness DMG mount answers the ES-DE license prompt): add `--activate-helper release/native/activate-app --borderless` to the `verify-esde-macos.js` command below. Pass only if every recorded `focus` outcome is `frontmost` **and** a physical controller action then changes ES-DE.
+Real ES-DE return was measured on 2026-10-05 with owner approval (3/3 frontmost; see STATUS). Launch the harness through LaunchServices inside the packaged app so ES-DE inherits the product's privacy identity; launched from a terminal `node`, ES-DE is killed by TCC as soon as SDL probes Bluetooth controllers:
+
+```
+open -n -W --env ELECTRON_RUN_AS_NODE=1 --stdout <out> --stderr <err> -a "release/build-macos/mac-arm64/Emulation Workspace.app" --args "$PWD/.erb/scripts/verify-esde-macos.js" --dmg … --fixture … --dolphin-install … --activate-helper "$PWD/release/native/activate-app" --borderless
+```
+
+After any frontend crash, check for an orphaned ES-DE (`pgrep -fl ES-DE`) and for `~/ES-DE` or `~/Library/Saved Application State/org.es-de.Frontend.savedState` in the real home; macOS relaunched a crashed ES-DE without its isolation arguments once. The original note follows: add `--activate-helper release/native/activate-app --borderless` to the `verify-esde-macos.js` command below. Pass only if every recorded `focus` outcome is `frontmost` **and** a physical controller action then changes ES-DE.
 
 ## Private runtime evidence
 

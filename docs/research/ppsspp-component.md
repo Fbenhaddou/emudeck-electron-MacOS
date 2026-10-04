@@ -1,6 +1,27 @@
 # Second component: PPSSPP (PSP) — research and generalization plan (2026-10-04)
 
-Status: research only. No artifact was downloaded, mounted, signed-checked or executed. Facts marked **UNVERIFIED** must be confirmed by inspecting the real DMG with the existing helper sequence (`hdiutil attach -readonly …`, `plutil`, `lipo -archs`, `codesign`, `spctl`) before any manifest or trust policy uses them. Source citations pin the `v1.20.4` tag (`T` = `https://github.com/hrydgard/ppsspp/blob/v1.20.4`).
+Status: research, with the official artifact inspected and isolation measured on 2026-10-05 (see §0). Remaining facts marked **UNVERIFIED** still need evidence. Facts marked **UNVERIFIED** must be confirmed by inspecting the real DMG with the existing helper sequence (`hdiutil attach -readonly …`, `plutil`, `lipo -archs`, `codesign`, `spctl`) before any manifest or trust policy uses them. Source citations pin the `v1.20.4` tag (`T` = `https://github.com/hrydgard/ppsspp/blob/v1.20.4`).
+
+
+## 0. Verified evidence (2026-10-05, macOS 27.0, Apple Silicon)
+
+Official `https://www.ppsspp.org/files/1_20_4/PPSSPP_macOS.dmg`: 37,090,805 bytes, SHA-256 `bad86fc544a2c2fc5795d6a5832a8925d6db43e5789fe507f742305aaa357e17` (audit fingerprint only; upstream publishes no checksum). Mounted read-only, `-nobrowse -noautoopen`; no license prompt.
+
+| Fact | Verified value |
+| --- | --- |
+| `.app` name | `PPSSPPSDL.app` (DMG also holds an `Applications` link) |
+| Bundle identifier / executable | `org.ppsspp.ppsspp` / `Contents/MacOS/PPSSPPSDL` |
+| Version keys | `CFBundleShortVersionString` = `CFBundleVersion` = `1.20.4` |
+| Architecture | Universal: `x86_64 arm64` |
+| Minimum macOS | No `LSMinimumSystemVersion`; arm64 Mach-O `minos 11.0` (`vtool -show-build`) |
+| Signature | Developer ID Application: Millionth Line AB (**97NS59EENG**), hardened runtime; `codesign --verify --deep --strict` passes |
+| Gatekeeper | `spctl --assess --type execute`: accepted, `source=Notarized Developer ID` |
+| Entitlements | `allow-jit`, `allow-unsigned-executable-memory`, `disable-executable-page-protection` |
+| Privacy usage keys | `NSCameraUsageDescription` present; no Bluetooth or microphone key |
+
+**HOME isolation measured.** Launched through LaunchServices with `HOME=<private temp dir>`, quit normally after 10 s. Created only `<home>/.config/ppsspp/PSP/{SYSTEM/ppsspp.ini, SYSTEM/controls.ini, SAVEDATA, PPSSPP_STATE, GAME, TEXTURES, PLUGINS, Cheats, SYSTEM/CACHE}`. Before and after: no `~/.config/ppsspp`, `~/Documents/PPSSPP`, `~/Library/Application Support/PPSSPP`, `~/Library/Preferences/org.ppsspp.ppsspp.plist`, `defaults` domain or Saved Application State in the real home. No crash report. Not yet measured: a game run, savestate creation, controller input.
+
+**Privacy identity.** When the manager spawns PPSSPP, macOS charges its privacy access to the manager (observed for ES-DE, see STATUS). PPSSPP's camera emulation therefore needs an `NSCameraUsageDescription` in the manager's own Info.plist before the component ships, or a camera-using game would terminate PPSSPP.
 
 ## 1. Why PPSSPP (and not a RetroArch core)
 
