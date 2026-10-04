@@ -24,10 +24,15 @@
   --control-edge: light-dark(#0000001f, #ffffff14);
   --platter: light-dark(#ffffffb3, #ffffff1a);
   --sidebar-selection: light-dark(#0000001a, #ffffff1f);
-  --focus: color-mix(in srgb, var(--accent) light-dark(50%, 75%), transparent);
+  /* light-dark() takes colors only, so mix each appearance separately. */
+  --focus: light-dark(
+    color-mix(in srgb, var(--accent) 50%, transparent),
+    color-mix(in srgb, var(--accent) 75%, transparent)
+  );
   --yellow: light-dark(#ffcc00, #ffd60a);
   --green: light-dark(#28a745, #32d74b);
   --toolbar-height: 52px;
+  --zoom: 1;
   color: var(--label);
 }
 * {
@@ -150,9 +155,6 @@ nav button {
   background: transparent;
   box-shadow: none;
 }
-nav button:focus-visible {
-  outline: none;
-}
 nav button[aria-current] {
   background: var(--sidebar-selection);
 }
@@ -164,9 +166,10 @@ nav button[aria-current] {
 .workspace[data-window-active='true'] nav button[aria-current] .nav-symbol {
   color: #fff;
 }
-/* Keyboard focus on the list shows as a ring around the selected row. */
+/* Keyboard focus on the list shows as a ring outside the selected row. */
 nav button[aria-current]:focus-visible {
-  box-shadow: 0 0 0 3px var(--focus);
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
 }
 .nav-symbol {
   display: grid;
@@ -203,13 +206,25 @@ nav button[aria-current]:focus-visible {
   align-items: center;
   gap: 8px;
   padding: 0 14px 0 20px;
-  background: color-mix(in srgb, var(--window) 72%, transparent);
-  backdrop-filter: blur(20px) saturate(1.8);
+  background: color-mix(in srgb, var(--window) 80%, transparent);
+  backdrop-filter: blur(20px) saturate(1.2);
   -webkit-app-region: drag;
 }
 .workspace[data-sidebar='collapsed'] .toolbar {
-  /* Clear the traffic lights once the sidebar no longer holds them. */
-  padding-left: 84px;
+  /* Clear the traffic lights (84pt, unscaled by zoom) once the sidebar no longer holds them. */
+  padding-left: calc(84px / var(--zoom));
+}
+/* Soft scroll-edge fade instead of a hard cut under the toolbar material. */
+.toolbar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 100%;
+  height: 12px;
+  background: linear-gradient(var(--window), transparent);
+  opacity: 0.72;
+  pointer-events: none;
 }
 .toolbar h1 {
   flex: 1;
@@ -290,6 +305,11 @@ main {
   gap: 6px;
   font-size: 13px;
   font-weight: 400;
+  min-width: 0;
+}
+/* Flex items cannot ellipsize bare text; titles truncate inside their own span. */
+.row h3 .title {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -332,7 +352,7 @@ main {
   margin: 0;
   color: var(--label);
   font-size: 13px;
-  text-wrap: pretty;
+  text-wrap: balance;
 }
 .row.alert button {
   max-width: 100%;

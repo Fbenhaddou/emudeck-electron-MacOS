@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import type { MacStatus } from '../../shared/macos';
+import { setWindowZoom } from './chrome';
 import { selectLibrary } from './library';
 
 type Appearance = 'light' | 'dark';
@@ -33,6 +34,9 @@ export default class SmokeHarness {
 
   private watchdog: ReturnType<typeof setTimeout> | undefined;
 
+  // Last step reached, reported if the watchdog expires to locate intermittent stalls.
+  private step = 'startup';
+
   constructor(private readonly directory: string) {
     const candidate = path.resolve(directory);
     if (
@@ -46,7 +50,10 @@ export default class SmokeHarness {
 
   observe(window: BrowserWindow): void {
     this.watchdog = setTimeout(
-      () => this.fail('Application smoke watchdog expired.'),
+      () =>
+        this.fail(
+          `Application smoke watchdog expired after step: ${this.step}.`,
+        ),
       110000,
     );
     window.webContents.on('console-message', (details) => {
@@ -126,6 +133,7 @@ export default class SmokeHarness {
   }
 
   private async navigate(window: BrowserWindow, page: string): Promise<void> {
+    this.step = `navigate ${page}`;
     await window.webContents.executeJavaScript(`
       Array.from(document.querySelectorAll('nav button')).find(button => button.textContent.trim() === ${JSON.stringify(page)}).click();
     `);
@@ -158,9 +166,10 @@ export default class SmokeHarness {
     zoom = 1,
     keyboardFocus = false,
   ): Promise<void> {
+    this.step = `before ${filename}`;
     nativeTheme.themeSource = appearance;
     window.setSize(width, height);
-    window.webContents.setZoomFactor(zoom);
+    setWindowZoom(window, zoom);
     await new Promise((resolve) => {
       setTimeout(resolve, 120);
     });
@@ -177,7 +186,10 @@ export default class SmokeHarness {
     }
     const layout = (await window.webContents.executeJavaScript(`({
       horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 1 || Array.from(document.querySelectorAll('main, .sidebar')).some(element => element.scrollWidth > element.clientWidth + 1),
-      keyboardFocus: Boolean(document.activeElement?.matches('button:focus-visible'))
+      // A focus-visible match is not enough: the ring itself must actually paint.
+      keyboardFocus: Boolean(document.activeElement?.matches('button:focus-visible')) &&
+        getComputedStyle(document.activeElement).outlineStyle !== 'none' &&
+        parseFloat(getComputedStyle(document.activeElement).outlineWidth) >= 2
     })`)) as { horizontalOverflow: boolean; keyboardFocus: boolean };
     if (layout.horizontalOverflow)
       throw new Error(`Horizontal overflow in ${filename}.`);
@@ -227,8 +239,9 @@ export default class SmokeHarness {
     window: BrowserWindow,
     label: string,
   ): Promise<void> {
+    this.step = `zoom action ${label}`;
     window.setSize(760, 560);
-    window.webContents.setZoomFactor(2);
+    setWindowZoom(window, 2);
     window.webContents.focus();
     await new Promise((resolve) => {
       setTimeout(resolve, 120);
@@ -441,7 +454,7 @@ export default class SmokeHarness {
     );
     await fs.rename(`${fixtureLibrary} disconnected`, fixtureLibrary);
 
-    window.webContents.setZoomFactor(2);
+    setWindowZoom(window, 2);
     await window.webContents.executeJavaScript(
       'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
     );
@@ -560,7 +573,7 @@ export default class SmokeHarness {
         2,
         true,
       );
-      window.webContents.setZoomFactor(1);
+      setWindowZoom(window, 1);
       window.webContents.focus();
       window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' });
       window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
@@ -583,7 +596,7 @@ export default class SmokeHarness {
       ]) {
         // eslint-disable-next-line no-await-in-loop
         await this.navigate(window, page);
-        window.webContents.setZoomFactor(2);
+        setWindowZoom(window, 2);
         // eslint-disable-next-line no-await-in-loop -- Inspect the final facts, including actual display dimensions.
         await window.webContents
           .executeJavaScript(`new Promise(resolve => requestAnimationFrame(() => {

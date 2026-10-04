@@ -337,9 +337,12 @@ describe('actual macOS main IPC and quit boundaries', () => {
           label: 'Refresh Status',
           accelerator: 'CmdOrCtrl+R',
         }),
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
+        expect.objectContaining({
+          id: 'mac-actual-size',
+          label: 'Actual Size',
+        }),
+        expect.objectContaining({ id: 'mac-zoom-in', label: 'Zoom In' }),
+        expect.objectContaining({ id: 'mac-zoom-out', label: 'Zoom Out' }),
         { role: 'togglefullscreen' },
       ]),
     );

@@ -18,6 +18,7 @@ import type {
   LibraryResult,
   MacStatus,
 } from '../../shared/macos';
+import { setWindowZoom, stepZoom } from './chrome';
 import { ComponentManager } from './component-manager';
 import { prepareDolphinLibrary } from './dolphin-library';
 import { dolphin } from '../components/dolphin';
@@ -378,6 +379,15 @@ function createWindow(): void {
     if (mainWindow === window) mainWindow = null;
   });
   window.once('ready-to-show', () => window.show());
+  // Pinch magnification would scale content without the toolbar's native chrome.
+  window.webContents.once('did-finish-load', () => {
+    void window.webContents
+      .setVisualZoomLevelLimits(1, 1)
+      .catch(() => undefined);
+  });
+  window.webContents.on('zoom-changed', (_event, direction) => {
+    stepZoom(window, direction === 'in' ? 1 : -1);
+  });
   let accentKey: string | undefined;
   const applyAccent = async () => {
     if (window.isDestroyed()) return;
@@ -513,9 +523,31 @@ if (!app.requestSingleInstanceLock()) {
                 click: refreshStatusFromMenu,
               },
               { type: 'separator' },
-              { role: 'resetZoom' },
-              { role: 'zoomIn' },
-              { role: 'zoomOut' },
+              // Custom items: every zoom path must also re-center the traffic lights.
+              {
+                id: 'mac-actual-size',
+                label: 'Actual Size',
+                accelerator: 'CmdOrCtrl+0',
+                click: () => {
+                  if (mainWindow) setWindowZoom(mainWindow, 1);
+                },
+              },
+              {
+                id: 'mac-zoom-in',
+                label: 'Zoom In',
+                accelerator: 'CmdOrCtrl+Plus',
+                click: () => {
+                  if (mainWindow) stepZoom(mainWindow, 1);
+                },
+              },
+              {
+                id: 'mac-zoom-out',
+                label: 'Zoom Out',
+                accelerator: 'CmdOrCtrl+-',
+                click: () => {
+                  if (mainWindow) stepZoom(mainWindow, -1);
+                },
+              },
               { type: 'separator' },
               { role: 'togglefullscreen' },
               ...(process.env.NODE_ENV === 'development'

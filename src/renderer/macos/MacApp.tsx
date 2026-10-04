@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  useLayoutEffect,
+} from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import type { MacAPI, MacStatus } from '../../shared/macos';
 
@@ -71,6 +77,60 @@ function Caution() {
       <path d="M8.3 1.2a2 2 0 0 1 3.4 0l7.9 13.5A2 2 0 0 1 17.9 18H2.1a2 2 0 0 1-1.7-3.3L8.3 1.2Z" />
       <path className="mark" d="M10 5.5v6M10 14.2v.1" />
     </svg>
+  );
+}
+
+/**
+ * Finder-style middle truncation: keeps the volume/root and the meaningful end
+ * of a path. The full path stays available as a tooltip and to VoiceOver.
+ */
+function MiddlePath({ value }: { value: string }) {
+  const element = useRef<HTMLParagraphElement | null>(null);
+  const [shown, setShown] = useState(value);
+  useLayoutEffect(() => {
+    const target = element.current;
+    const context =
+      typeof ResizeObserver === 'undefined' || !target
+        ? null
+        : document.createElement('canvas').getContext('2d');
+    if (!target || !context) {
+      setShown(value);
+      return undefined;
+    }
+    const fit = () => {
+      const style = getComputedStyle(target);
+      context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+      const width = target.clientWidth;
+      if (!width || context.measureText(value).width <= width) {
+        setShown(value);
+        return;
+      }
+      const characters = Array.from(value);
+      let low = 1;
+      let high = characters.length - 1;
+      let best = '…';
+      while (low <= high) {
+        const keep = Math.floor((low + high) / 2);
+        const head = Math.ceil(keep * 0.4);
+        const candidate = `${characters.slice(0, head).join('')}…${characters
+          .slice(characters.length - (keep - head))
+          .join('')}`;
+        if (context.measureText(candidate).width <= width) {
+          best = candidate;
+          low = keep + 1;
+        } else high = keep - 1;
+      }
+      setShown(best);
+    };
+    fit();
+    const observer = new ResizeObserver(fit);
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [value]);
+  return (
+    <p ref={element} className="path" title={value} aria-label={value}>
+      {shown}
+    </p>
   );
 }
 
@@ -154,6 +214,20 @@ export default function MacApp() {
       window.removeEventListener('focus', activate);
       window.removeEventListener('blur', deactivate);
     };
+  }, []);
+  useEffect(() => {
+    // outerWidth is in window points, innerWidth in zoomed CSS pixels (frameless window).
+    const measure = () => {
+      const zoom =
+        window.innerWidth > 0 ? window.outerWidth / window.innerWidth : 1;
+      document.documentElement.style.setProperty(
+        '--zoom',
+        String(Number.isFinite(zoom) && zoom >= 1 ? zoom : 1),
+      );
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
   }, []);
   useEffect(() => {
     // Like NSSplitView, a narrow window collapses the sidebar instead of shrinking it.
@@ -423,14 +497,18 @@ export default function MacApp() {
                       <div className="row">
                         <div className="row-text">
                           <h3>
-                            {status.library?.path
-                              .split('/')
-                              .filter(Boolean)
-                              .pop() || 'Library location'}
+                            <span className="title">
+                              {status.library?.path
+                                .split('/')
+                                .filter(Boolean)
+                                .pop() || 'Library location'}
+                            </span>
                           </h3>
-                          <p className="path" title={status.library?.path}>
-                            {status.library?.path || 'No folder selected'}
-                          </p>
+                          {status.library ? (
+                            <MiddlePath value={status.library.path} />
+                          ) : (
+                            <p className="path">No folder selected</p>
+                          )}
                         </div>
                         <button
                           type="button"
@@ -457,13 +535,15 @@ export default function MacApp() {
                         <div className="row">
                           <div className="row-text">
                             <h3>
-                              {status.library.available
-                                ? 'Folder available'
-                                : 'Folder unavailable'}
                               <span
                                 className={`indicator ${status.library.available ? 'on' : 'off'}`}
                                 aria-hidden="true"
                               />
+                              <span className="title">
+                                {status.library.available
+                                  ? 'Folder available'
+                                  : 'Folder unavailable'}
+                              </span>
                             </h3>
                             <p>
                               {status.library.available
