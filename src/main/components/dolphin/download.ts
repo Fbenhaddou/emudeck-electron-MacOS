@@ -88,23 +88,46 @@ const transport: Transport = (url, signal) =>
     request.on('error', reject);
   });
 
+/* eslint-disable no-unused-vars -- Names document the URL trust policy. */
+interface RequestPolicy {
+  /** Every requested URL, including the first, must pass. */
+  trusted: (url: string) => boolean;
+  /** A redirect target must also pass this identity check. */
+  redirect: (next: string) => boolean;
+  timeout: number;
+}
+/* eslint-enable no-unused-vars */
+
+const releasePolicy: RequestPolicy = {
+  trusted: (url) => url === RELEASE_API,
+  redirect: (next) => next === RELEASE_API,
+  timeout: 120000,
+};
+
+function artifactPolicy(url: string): RequestPolicy {
+  return {
+    trusted: (current) => Boolean(artifactURL(current)),
+    redirect: (next) => next === url,
+    // Official DMGs can take several minutes on a slow connection.
+    timeout: 600000,
+  };
+}
+
 async function consume(
   url: string,
   limit: number,
   receive: (chunk: Buffer) => Promise<void>,
   request: Transport,
-  api = false,
+  policy: RequestPolicy,
 ): Promise<number> {
   const controller = new AbortController();
-  // Official DMGs can take several minutes on a slow connection. Keep an
-  // absolute deadline and byte limit; metadata retains the shorter timeout.
-  const timer = setTimeout(() => controller.abort(), api ? 120000 : 600000);
+  // Keep an absolute deadline and byte limit for every transfer.
+  const timer = setTimeout(() => controller.abort(), policy.timeout);
   let response: ResponseStream | undefined;
   let current = url;
   try {
     for (let redirects = 0; redirects <= 3; redirects += 1) {
-      if (api ? current !== RELEASE_API : !artifactURL(current))
-        throw new Error('Untrusted request URL');
+      if (!policy.trusted(current)) throw new Error('Untrusted request URL');
       // eslint-disable-next-line no-await-in-loop -- Redirects depend on the previous response.
       response = await request(current, controller.signal);
       if ([301, 302, 303, 307, 308].includes(response.statusCode || 0)) {
@@ -113,7 +136,7 @@ async function consume(
         if (!location || redirects === 3)
           throw new Error('Invalid or excessive redirects');
         const next = new URL(location, current).href;
-        if (api ? next !== RELEASE_API : next !== url)
+        if (!policy.redirect(next))
           throw new Error('Artifact redirect changes trusted identity');
         current = next;
       } else break;
@@ -151,7 +174,7 @@ export async function discoverRelease(
       chunks.push(chunk);
     },
     request,
-    true,
+    releasePolicy,
   );
   return selectRelease(
     JSON.parse(
@@ -162,20 +185,20 @@ export async function discoverRelease(
   );
 }
 
-/** SHA-256 is an audit fingerprint, not publisher authentication. Never overwrite files. */
-export async function downloadArtifact(
-  release: DolphinRelease,
+async function writeDownload(
+  url: string,
+  limit: number,
   destination: string,
-  request: Transport = transport,
+  request: Transport,
+  policy: RequestPolicy,
 ): Promise<{ sha256: string; bytes: number }> {
-  artifactURL(release.artifactURL, release.version);
   const handle = await fs.open(destination, 'wx', 0o600);
   const hash = createHash('sha256');
   let complete = false;
   try {
     const bytes = await consume(
-      release.artifactURL,
-      512 * 1024 * 1024,
+      url,
+      limit,
       async (chunk) => {
         const bytesToWrite = Uint8Array.from(chunk);
         hash.update(bytesToWrite);
@@ -192,6 +215,7 @@ export async function downloadArtifact(
         }
       },
       request,
+      policy,
     );
     await handle.sync();
     complete = true;
@@ -200,4 +224,66 @@ export async function downloadArtifact(
     await handle.close();
     if (!complete) await fs.unlink(destination);
   }
+}
+
+/** SHA-256 is an audit fingerprint, not publisher authentication. Never overwrite files. */
+export async function downloadArtifact(
+  release: DolphinRelease,
+  destination: string,
+  request: Transport = transport,
+): Promise<{ sha256: string; bytes: number }> {
+  artifactURL(release.artifactURL, release.version);
+  return writeDownload(
+    release.artifactURL,
+    512 * 1024 * 1024,
+    destination,
+    request,
+    artifactPolicy(release.artifactURL),
+  );
+}
+
+export interface PinnedArtifact {
+  url: string;
+  bytes: number;
+  sha256: string;
+}
+
+/**
+ * A reviewed, pinned artifact: exact HTTPS URL with no redirects, exact length
+ * and exact SHA-256. A mismatch removes the file. Publisher signature and
+ * Gatekeeper checks still follow; the hash only pins the reviewed bytes.
+ */
+export async function downloadPinned(
+  artifact: PinnedArtifact,
+  destination: string,
+  request: Transport = transport,
+): Promise<{ sha256: string; bytes: number }> {
+  const url = new URL(artifact.url);
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.hash ||
+    url.href !== artifact.url ||
+    !Number.isSafeInteger(artifact.bytes) ||
+    artifact.bytes <= 0 ||
+    !/^[a-f0-9]{64}$/.test(artifact.sha256)
+  )
+    throw new Error('Invalid pinned artifact');
+  const result = await writeDownload(
+    artifact.url,
+    artifact.bytes,
+    destination,
+    request,
+    {
+      trusted: (current) => current === artifact.url,
+      redirect: () => false,
+      timeout: 600000,
+    },
+  );
+  if (result.bytes !== artifact.bytes || result.sha256 !== artifact.sha256) {
+    await fs.unlink(destination);
+    throw new Error('Downloaded file does not match the reviewed release');
+  }
+  return result;
 }

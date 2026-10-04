@@ -137,7 +137,7 @@ export function validateMount(plistJSON: string, mountPoint: string): void {
     throw new Error('Image mounted outside its owned location');
 }
 
-async function checkBundleLinks(bundle: string): Promise<void> {
+export async function checkBundleLinks(bundle: string): Promise<void> {
   const realBundle = await fs.realpath(bundle);
   if (realBundle !== bundle) throw new Error('Bundle root cannot be a symlink');
   let entries = 0;
@@ -318,7 +318,10 @@ async function mountedImages(run: ProcessRunner): Promise<MountedImage[]> {
 }
 
 /** Query after failed attach as well: an attach error does not prove there is no mount. */
-async function detachStage(staged: string, run: ProcessRunner): Promise<void> {
+export async function detachStage(
+  staged: string,
+  run: ProcessRunner,
+): Promise<void> {
   const expected = path.join(staged, 'mount');
   const ownedImage = path.join(staged, 'download.dmg');
   const inside = (mount: string) =>
