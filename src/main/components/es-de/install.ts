@@ -153,6 +153,28 @@ function frontendAt(root: string): InstalledFrontend {
   });
 }
 
+/**
+ * Cheap status check: the installed version according to its receipt. Never use
+ * this to authorize execution; installedFrontend verifies signatures first.
+ */
+export async function installedVersion(root: string): Promise<string | null> {
+  const frontend = frontendAt(await ownedRoot(root));
+  try {
+    const receipt = json(
+      await fs.readFile(
+        path.join(path.dirname(frontend.bundle), 'receipt.json'),
+        'utf8',
+      ),
+    ) as Record<string, unknown>;
+    return receipt.version === ESDE_RELEASE.version &&
+      receipt.sha256 === ESDE_RELEASE.artifact.sha256
+      ? ESDE_RELEASE.version
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Returns the verified managed installation, or null if absent or incomplete. */
 export async function installedFrontend(
   root: string,

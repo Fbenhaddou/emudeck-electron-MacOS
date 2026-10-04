@@ -23,13 +23,15 @@ describe('actual frozen macOS preload bridge', () => {
     });
   });
 
-  it('exposes only eight fixed methods and no generic IPC primitive', () => {
+  it('exposes only ten fixed methods and no generic IPC primitive', () => {
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     expect(exposeInMainWorld).toHaveBeenCalledWith('mac', api);
     expect(Object.isFrozen(api)).toBe(true);
     expect(Object.keys(api).sort()).toEqual([
       'chooseLibrary',
+      'enterConsole',
       'getStatus',
+      'installConsole',
       'installDolphin',
       'onRefreshStatus',
       'playGame',
@@ -47,6 +49,8 @@ describe('actual frozen macOS preload bridge', () => {
     ['playGame', 'mac:play-game'],
     ['resetDolphin', 'mac:reset-dolphin'],
     ['recoverLibrarySettings', 'mac:recover-library-settings'],
+    ['installConsole', 'mac:install-console'],
+    ['enterConsole', 'mac:enter-console'],
   ])('does not forward renderer arguments from %s', async (method, channel) => {
     const call = api[method as Exclude<keyof MacAPI, 'onRefreshStatus'>] as (
       ...args: unknown[]

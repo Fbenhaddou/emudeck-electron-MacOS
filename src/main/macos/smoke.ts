@@ -380,7 +380,9 @@ export default class SmokeHarness {
     };
     const expectedMethods = [
       'chooseLibrary',
+      'enterConsole',
       'getStatus',
+      'installConsole',
       'installDolphin',
       'onRefreshStatus',
       'playGame',

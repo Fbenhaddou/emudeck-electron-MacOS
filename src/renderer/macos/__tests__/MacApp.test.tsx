@@ -11,6 +11,7 @@ import MacApp from '../MacApp';
 import type { MacStatus } from '../../../shared/macos';
 
 const status: MacStatus = {
+  console: { frontend: null, state: 'idle', lastError: null, games: null },
   dolphin: { version: null, operation: 'idle' },
   appVersion: 'test',
   platform: 'darwin',
@@ -23,7 +24,7 @@ const status: MacStatus = {
   capabilities: {
     controllers: 'untested',
     installation: 'planned',
-    consoleMode: 'planned',
+    consoleMode: 'preview',
   },
 };
 let refreshFromMenu: () => void;
@@ -34,6 +35,8 @@ beforeEach(() => {
     installDolphin: jest.fn().mockResolvedValue({ ok: true }),
     playGame: jest.fn().mockResolvedValue({ ok: true }),
     resetDolphin: jest.fn().mockResolvedValue({ ok: true }),
+    installConsole: jest.fn(async () => ({ ok: true as const })),
+    enterConsole: jest.fn(async () => ({ ok: true as const })),
     recoverLibrarySettings: jest.fn().mockResolvedValue({ ok: true }),
     getStatus: jest.fn().mockResolvedValue(status),
     onRefreshStatus: jest.fn((callback: () => void) => {

@@ -79,7 +79,9 @@ async function run() {
   const preferences = report.webPreferences || {};
   const bridgeMethods = [
     'chooseLibrary',
+    'enterConsole',
     'getStatus',
+    'installConsole',
     'installDolphin',
     'onRefreshStatus',
     'playGame',

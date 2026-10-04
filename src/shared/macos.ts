@@ -8,8 +8,18 @@ export interface DolphinStatus {
   operation: 'idle' | 'installing' | 'launching' | 'running' | 'resetting';
 }
 
+export interface ConsoleStatus {
+  /** Installed managed ES-DE version, or null. */
+  frontend: string | null;
+  state: 'idle' | 'installing' | 'starting' | 'running' | 'stopping';
+  /** Plain-language problem from the last session, if any. */
+  lastError: string | null;
+  games: number | null;
+}
+
 export interface MacStatus {
   dolphin: DolphinStatus;
+  console: ConsoleStatus;
   appVersion: string;
   platform: 'darwin';
   architecture: string;
@@ -27,7 +37,7 @@ export interface MacStatus {
   capabilities: {
     controllers: 'untested';
     installation: 'planned';
-    consoleMode: 'planned';
+    consoleMode: 'preview';
   };
 }
 
@@ -45,4 +55,6 @@ export interface MacAPI {
   playGame(): Promise<ActionResult>;
   resetDolphin(): Promise<ActionResult>;
   recoverLibrarySettings(): Promise<ActionResult>;
+  installConsole(): Promise<ActionResult>;
+  enterConsole(): Promise<ActionResult>;
 }

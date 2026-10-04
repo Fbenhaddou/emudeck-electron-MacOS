@@ -74,6 +74,10 @@ function createFixture() {
       return value;
     }),
     getVersion: jest.fn(() => 'test-version'),
+    getAppPath: jest.fn(() => '/test/release/app'),
+    hide: jest.fn(),
+    show: jest.fn(),
+    focus: jest.fn(),
     requestSingleInstanceLock: jest.fn(() => true),
     whenReady: jest.fn(() => ready),
     isReady: jest.fn(() => true),

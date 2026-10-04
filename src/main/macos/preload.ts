@@ -7,6 +7,8 @@ const api: MacAPI = Object.freeze({
   resetDolphin: () => ipcRenderer.invoke('mac:reset-dolphin'),
   recoverLibrarySettings: () =>
     ipcRenderer.invoke('mac:recover-library-settings'),
+  installConsole: () => ipcRenderer.invoke('mac:install-console'),
+  enterConsole: () => ipcRenderer.invoke('mac:enter-console'),
   getStatus: () => ipcRenderer.invoke('mac:status'),
   onRefreshStatus: (callback: () => void) => {
     if (typeof callback !== 'function')

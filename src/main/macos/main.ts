@@ -19,6 +19,9 @@ import type {
   MacStatus,
 } from '../../shared/macos';
 import { setWindowZoom, stepZoom } from './chrome';
+import { consoleDependencies, privateDirectory } from './console-host';
+import { ConsoleSession } from './console-session';
+import { installFrontend, installedVersion } from '../components/es-de/install';
 import { ComponentManager } from './component-manager';
 import { symbolCSS } from './symbols';
 import { prepareDolphinLibrary } from './dolphin-library';
@@ -71,9 +74,14 @@ async function availableLibrary(): Promise<string> {
   if (!library?.available) throw new Error('Library unavailable');
   return library.path;
 }
+// Assigned below; the manager's exit callback must know about Console Mode.
+// eslint-disable-next-line prefer-const
+let consoleSession: ConsoleSession;
 const manager = new ComponentManager(
   path.join(app.getPath('userData'), 'components', 'dolphin'),
   () => {
+    // In Console Mode the frontend, not the manager, must regain focus.
+    if (consoleSession?.isActive) return;
     mainWindow?.show();
     mainWindow?.focus();
   },
@@ -84,6 +92,47 @@ const manager = new ComponentManager(
       throw new Error('Library changed or its drive is unavailable');
   },
 );
+
+const consoleRoot = path.join(app.getPath('userData'), 'console');
+const frontendRoot = path.join(app.getPath('userData'), 'components', 'es-de');
+// Packaged helpers ship in Resources/helpers; development uses the native build.
+const helpers = app.isPackaged
+  ? path.join(process.resourcesPath, 'helpers')
+  : path.resolve(app.getAppPath(), '..', 'native');
+let installingConsole = false;
+consoleSession = new ConsoleSession(
+  path.join(consoleRoot, 'esde-home'),
+  manager,
+  consoleDependencies(
+    {
+      frontendRoot,
+      profileHome: path.join(consoleRoot, 'esde-home'),
+      secretPath: path.join(consoleRoot, 'game-id.key'),
+      launcherHelper: path.join(helpers, 'console-launcher'),
+      activateHelper: path.join(helpers, 'activate-app'),
+    },
+    {
+      // Hidden, not closed: the manager stays ready but never competes for focus.
+      hide: () => app.hide(),
+      show: () => {
+        app.show();
+        mainWindow?.show();
+        app.focus({ steal: true });
+        mainWindow?.focus();
+      },
+    },
+  ),
+  // eslint-disable-next-line no-use-before-define -- Hoisted; runs after startup.
+  () => refreshStatusFromMenu(),
+);
+function operationBusy(): boolean {
+  return (
+    choosingLibrary ||
+    manager.isBusy ||
+    consoleSession.isActive ||
+    installingConsole
+  );
+}
 
 function validateCaller(event: IpcMainInvokeEvent, args: unknown[]): void {
   if (
@@ -106,8 +155,22 @@ async function getStatus(): Promise<MacStatus> {
     libraryError =
       'Library settings could not be read. Existing files have been preserved.';
   }
+  let frontend: string | null = null;
+  try {
+    // Status is read-only: never create folders; absent means not installed.
+    frontend = await installedVersion(frontendRoot);
+  } catch {
+    frontend = null;
+  }
+  const { report } = consoleSession;
   return {
     dolphin: await manager.status(),
+    console: {
+      frontend,
+      state: installingConsole ? 'installing' : consoleSession.state,
+      lastError: report?.error || null,
+      games: report ? report.games : null,
+    },
     appVersion: app.getVersion(),
     platform: 'darwin',
     architecture: process.arch,
@@ -126,7 +189,7 @@ async function getStatus(): Promise<MacStatus> {
     capabilities: {
       controllers: 'untested',
       installation: 'planned',
-      consoleMode: 'planned',
+      consoleMode: 'preview',
     },
   };
 }
@@ -135,7 +198,7 @@ ipcMain.handle(
   'mac:install-dolphin',
   async (event, ...args): Promise<ActionResult> => {
     validateCaller(event, args);
-    if (choosingLibrary || manager.isBusy)
+    if (operationBusy())
       return {
         ok: false,
         error: 'Finish the current operation or quit the game first.',
@@ -163,7 +226,7 @@ ipcMain.handle(
   'mac:play-game',
   async (event, ...args): Promise<ActionResult> => {
     validateCaller(event, args);
-    if (choosingLibrary || manager.isBusy)
+    if (operationBusy())
       return {
         ok: false,
         error: 'Finish the current operation or quit the game first.',
@@ -208,7 +271,7 @@ ipcMain.handle(
   'mac:reset-dolphin',
   async (event, ...args): Promise<ActionResult> => {
     validateCaller(event, args);
-    if (choosingLibrary || manager.isBusy)
+    if (operationBusy())
       return {
         ok: false,
         error:
@@ -243,6 +306,76 @@ ipcMain.handle(
   },
 );
 
+ipcMain.handle(
+  'mac:install-console',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args);
+    if (operationBusy())
+      return {
+        ok: false,
+        error: 'Finish the current operation or quit the game first.',
+      };
+    installingConsole = true;
+    try {
+      await installFrontend(await privateDirectory(frontendRoot), {
+        // The image's own license text, in a native sheet. Never answered for the user.
+        acceptLicense: async (text) => {
+          if (!mainWindow) return false;
+          const choice = await dialog.showMessageBox(mainWindow, {
+            type: 'info',
+            message: 'ES-DE License Agreement',
+            detail: `To install ES-DE for Console Mode, you must agree to its license.\n\n${text}`,
+            buttons: ['Agree', 'Disagree'],
+            defaultId: 0,
+            cancelId: 1,
+          });
+          return choice.response === 0;
+        },
+      });
+      return { ok: true };
+    } catch (error) {
+      const declined =
+        error instanceof Error && error.message.includes('declined');
+      return {
+        ok: false,
+        error: declined
+          ? 'ES-DE was not installed because its license was not accepted.'
+          : 'ES-DE could not be installed. Check your connection and try again. Only the reviewed official release, verified by its publisher signature and macOS, is installed.',
+      };
+    } finally {
+      installingConsole = false;
+    }
+  },
+);
+ipcMain.handle(
+  'mac:enter-console',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args);
+    if (operationBusy())
+      return {
+        ok: false,
+        error: 'Finish the current operation or quit the game first.',
+      };
+    try {
+      const library = await availableLibrary();
+      if (!(await manager.status()).version)
+        return {
+          ok: false,
+          error: 'Install Dolphin before opening Console Mode.',
+        };
+      await consoleSession.enter(library);
+      return { ok: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      return {
+        ok: false,
+        error: message.startsWith('Install ES-DE')
+          ? 'Install ES-DE before opening Console Mode.'
+          : 'Console Mode could not start. Check that your library drive is connected. Your games and saves are unchanged.',
+      };
+    }
+  },
+);
 ipcMain.handle('mac:status', async (event, ...args) => {
   validateCaller(event, args);
   return getStatus();
@@ -251,7 +384,7 @@ ipcMain.handle(
   'mac:choose-library',
   async (event, ...args): Promise<LibraryResult> => {
     validateCaller(event, args);
-    if (choosingLibrary || manager.isBusy)
+    if (operationBusy())
       return {
         ok: false,
         error:
@@ -312,7 +445,7 @@ ipcMain.handle(
   'mac:recover-library-settings',
   async (event, ...args): Promise<ActionResult> => {
     validateCaller(event, args);
-    if (choosingLibrary || manager.isBusy)
+    if (operationBusy())
       return {
         ok: false,
         error: 'Finish the current operation or quit the game first.',
@@ -477,12 +610,12 @@ if (!app.requestSingleInstanceLock()) {
     void (async () => {
       try {
         await manager.status();
-        if (manager.isBusy || choosingLibrary) {
+        if (operationBusy()) {
           const options: Electron.MessageBoxOptions = {
             type: 'info',
             message: 'Finish your current session first',
             detail:
-              'Quit the game or wait for the current operation to finish, then quit Emulation Workspace. This keeps your settings and saves protected.',
+              'Quit the game, leave Console Mode, or wait for the current operation to finish, then quit Emulation Workspace. This keeps your settings and saves protected.',
             buttons: ['OK'],
           };
           if (mainWindow) await dialog.showMessageBox(mainWindow, options);
