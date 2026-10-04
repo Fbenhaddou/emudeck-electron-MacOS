@@ -23,3 +23,11 @@ Pinned ES-DE3.5 source launches Unix commands through a shell and does not escap
 ## 006 — Deliberately unsigned development packages
 
 The local preview does not silently select an installed Apple Development certificate. A reviewed Developer ID must be explicitly selected using EMULATION_SIGNING_IDENTITY. No notarization success is claimed. Preserve full Electron/Chromium and React runtime notices, the upstream license documents and research inventory alongside an original neutral icon.
+
+## 007 — Keep text zoom; degrade like a native split view
+
+The macOS visual critic recommended disabling page zoom because native apps do not page-zoom. Rejected: it is this app's only text-size accommodation and 200% zoom is an existing accessibility gate. Instead, type never changes size at breakpoints and narrow or zoomed windows collapse the sidebar behind a toolbar toggle (NSSplitView behaviour) rather than shrinking it.
+
+## 008 — Native helpers only where Electron cannot reach
+
+`activate-app` exists because Electron cannot activate another process and ES-DE has no focus restoration, while an unfocused ES-DE ignores controller input. It is a separate single-purpose binary that main invokes with argv; it validates exact PID, owner UID and managed bundle and activates nothing else. SF Symbols are not exported or embedded as SVG (licensing ambiguity); original glyphs remain until a native rendering path is evaluated.

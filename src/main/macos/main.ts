@@ -26,6 +26,12 @@ import { acceptsEmptyArguments, isTrustedDocument } from './security';
 import SmokeHarness from './smoke';
 
 app.setName('Emulation Workspace');
+// Attribution lives in the About panel, as in other Mac apps, not in window chrome.
+app.setAboutPanelOptions({
+  applicationName: 'Emulation Workspace',
+  credits:
+    'Development Preview. Built on EmuDeck. An independent project; not an official EmuDeck or RetroDECK product.',
+});
 app.setPath(
   'userData',
   path.join(app.getPath('appData'), 'Emulation Workspace'),

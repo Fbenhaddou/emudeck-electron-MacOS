@@ -66,6 +66,7 @@ function createFixture() {
     name: 'Emulation Workspace',
     isPackaged: false,
     setName: jest.fn(),
+    setAboutPanelOptions: jest.fn(),
     setPath: jest.fn((name: string, value: string) => paths.set(name, value)),
     getPath: jest.fn((name: string) => {
       const value = paths.get(name);

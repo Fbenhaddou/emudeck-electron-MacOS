@@ -65,6 +65,15 @@ function Hero({
   );
 }
 
+function Caution() {
+  return (
+    <svg className="caution" viewBox="0 0 20 18" aria-hidden="true">
+      <path d="M8.3 1.2a2 2 0 0 1 3.4 0l7.9 13.5A2 2 0 0 1 17.9 18H2.1a2 2 0 0 1-1.7-3.3L8.3 1.2Z" />
+      <path className="mark" d="M10 5.5v6M10 14.2v.1" />
+    </svg>
+  );
+}
+
 /** Indeterminate progress, drawn like NSProgressIndicator's spinning style. */
 function Spinner() {
   return (
@@ -93,6 +102,8 @@ export default function MacApp() {
   const [error, setError] = useState('');
   const [statusError, setStatusError] = useState('');
   const [windowActive, setWindowActive] = useState(true);
+  const [narrow, setNarrow] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const mounted = useRef(true);
   const mainContent = useRef<HTMLElement | null>(null);
   const errorMessage = useRef<HTMLDivElement | null>(null);
@@ -143,6 +154,18 @@ export default function MacApp() {
       window.removeEventListener('focus', activate);
       window.removeEventListener('blur', deactivate);
     };
+  }, []);
+  useEffect(() => {
+    // Like NSSplitView, a narrow window collapses the sidebar instead of shrinking it.
+    const query = window.matchMedia?.('(max-width: 640px)');
+    if (!query) return undefined;
+    const update = () => {
+      setNarrow(query.matches);
+      if (!query.matches) setSidebarOpen(false);
+    };
+    update();
+    query.addEventListener('change', update);
+    return () => query.removeEventListener('change', update);
   }, []);
   const visibleError = error || statusError;
   const visibleLibraryError =
@@ -227,6 +250,7 @@ export default function MacApp() {
     if (page !== item && mainContent.current) mainContent.current.scrollTop = 0;
     setPage(item);
     setError('');
+    if (narrow) setSidebarOpen(false);
   };
   // A source list is one tab stop; arrow keys move the selection (NSOutlineView).
   const navigateWithKeys = (event: KeyboardEvent<HTMLButtonElement>) => {
@@ -276,8 +300,14 @@ export default function MacApp() {
       className="workspace"
       data-ready={status ? 'true' : 'false'}
       data-window-active={windowActive ? 'true' : 'false'}
+      data-sidebar={narrow && !sidebarOpen ? 'collapsed' : 'shown'}
     >
-      <aside className="sidebar" aria-label="Workspace navigation">
+      <aside
+        id="sidebar"
+        className="sidebar"
+        aria-label="Workspace navigation"
+        hidden={narrow && !sidebarOpen}
+      >
         <nav ref={navigation}>
           {sections.map((section) => (
             <div className="sidebar-section" key={section.title}>
@@ -303,14 +333,31 @@ export default function MacApp() {
             </div>
           ))}
         </nav>
-        <div className="sidebar-footer">
-          Development Preview
-          <br />
-          <span>Built on EmuDeck</span>
-        </div>
       </aside>
       <div className="detail">
         <header className="toolbar">
+          {narrow && (
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
+              title={sidebarOpen ? 'Hide Sidebar' : 'Show Sidebar'}
+              aria-expanded={sidebarOpen}
+              aria-controls="sidebar"
+              onClick={() => setSidebarOpen((open) => !open)}
+            >
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.6"
+              >
+                <rect x="3" y="5" width="18" height="14" rx="3" />
+                <path d="M9 5v14" />
+              </svg>
+            </button>
+          )}
           <h1>{page}</h1>
           <button
             type="button"
@@ -340,11 +387,11 @@ export default function MacApp() {
         >
           <div className="pane">
             {visibleError && (
-              <div ref={errorMessage} className="error" role="alert">
-                <span className="error-symbol" aria-hidden="true">
-                  !
-                </span>
-                <p>{visibleError}</p>
+              <div ref={errorMessage} className="group" role="alert">
+                <div className="row alert">
+                  <Caution />
+                  <p>{visibleError}</p>
+                </div>
               </div>
             )}
             {!status ? (
@@ -375,7 +422,12 @@ export default function MacApp() {
                     >
                       <div className="row">
                         <div className="row-text">
-                          <h3>Library location</h3>
+                          <h3>
+                            {status.library?.path
+                              .split('/')
+                              .filter(Boolean)
+                              .pop() || 'Library location'}
+                          </h3>
                           <p className="path" title={status.library?.path}>
                             {status.library?.path || 'No folder selected'}
                           </p>
@@ -405,13 +457,13 @@ export default function MacApp() {
                         <div className="row">
                           <div className="row-text">
                             <h3>
+                              {status.library.available
+                                ? 'Folder available'
+                                : 'Folder unavailable'}
                               <span
                                 className={`indicator ${status.library.available ? 'on' : 'off'}`}
                                 aria-hidden="true"
                               />
-                              {status.library.available
-                                ? 'Folder available'
-                                : 'Folder unavailable'}
                             </h3>
                             <p>
                               {status.library.available
@@ -430,36 +482,34 @@ export default function MacApp() {
                           </button>
                         </div>
                       )}
-                    </section>
-                    {status.libraryError && (
-                      <div
-                        ref={libraryErrorMessage}
-                        role="alert"
-                        className="error"
-                        aria-busy={action === 'recovering-library'}
-                      >
-                        <span className="error-symbol" aria-hidden="true">
-                          !
-                        </span>
-                        <p className="recovery-message">
-                          {status.libraryError}
-                        </p>
-                        <button
-                          type="button"
-                          className="primary"
-                          disabled={emulatorBusy}
-                          onClick={() => {
-                            void operate('recovering-library', () =>
-                              window.mac.recoverLibrarySettings(),
-                            );
-                          }}
+                      {status.libraryError && (
+                        <div
+                          ref={libraryErrorMessage}
+                          role="alert"
+                          className="row alert"
+                          aria-busy={action === 'recovering-library'}
                         >
-                          {action === 'recovering-library'
-                            ? 'Recovering…'
-                            : 'Recover Library Settings…'}
-                        </button>
-                      </div>
-                    )}
+                          <Caution />
+                          <p className="recovery-message">
+                            {status.libraryError}
+                          </p>
+                          <button
+                            type="button"
+                            className="primary"
+                            disabled={emulatorBusy}
+                            onClick={() => {
+                              void operate('recovering-library', () =>
+                                window.mac.recoverLibrarySettings(),
+                              );
+                            }}
+                          >
+                            {action === 'recovering-library'
+                              ? 'Recovering…'
+                              : 'Recover Library Settings…'}
+                          </button>
+                        </div>
+                      )}
+                    </section>
                     <p className="footnote">
                       Choosing a folder saves its location. Your games and saves
                       stay where they are.
@@ -487,9 +537,6 @@ export default function MacApp() {
                       }
                     >
                       <div className="row">
-                        <span className="tile small indigo" aria-hidden="true">
-                          <Symbol page="Emulators" />
-                        </span>
                         <div className="row-text">
                           <h3>Dolphin</h3>
                           <p>
