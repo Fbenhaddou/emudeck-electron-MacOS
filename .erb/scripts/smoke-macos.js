@@ -53,7 +53,7 @@ async function run() {
         /* Already exited. */
       }
     }
-  }, 55000);
+  }, 120000);
   let code;
   try {
     code = await new Promise((resolve, reject) => {

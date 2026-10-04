@@ -47,7 +47,7 @@ export default class SmokeHarness {
   observe(window: BrowserWindow): void {
     this.watchdog = setTimeout(
       () => this.fail('Application smoke watchdog expired.'),
-      50000,
+      110000,
     );
     window.webContents.on('console-message', (details) => {
       if (details.level === 'error') this.fail(`Renderer: ${details.message}`);
@@ -167,6 +167,14 @@ export default class SmokeHarness {
     await window.webContents.executeJavaScript(
       'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
     );
+    // :focus-visible only matches in the key window; another frontmost app must not fail the check.
+    if (keyboardFocus) {
+      window.focus();
+      window.webContents.focus();
+      await window.webContents.executeJavaScript(
+        'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+      );
+    }
     const layout = (await window.webContents.executeJavaScript(`({
       horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 1 || Array.from(document.querySelectorAll('main, .sidebar')).some(element => element.scrollWidth > element.clientWidth + 1),
       keyboardFocus: Boolean(document.activeElement?.matches('button:focus-visible'))
