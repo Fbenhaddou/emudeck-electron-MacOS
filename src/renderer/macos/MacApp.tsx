@@ -32,19 +32,29 @@ const icons: Record<Page, string> = {
   Development: 'M8 5 2 12l6 7m8-14 6 7-6 7M14 3l-4 18',
 };
 
+const symbolKeys: Record<Page, string> = {
+  Library: 'library',
+  Emulators: 'emulators',
+  'This Mac': 'this-mac',
+  Development: 'development',
+};
+
+/** Main masks this with the native SF Symbol when the Mac can render it. */
 function Symbol({ page }: { page: Page }) {
   return (
-    <svg
-      aria-hidden="true"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d={icons[page]} />
-    </svg>
+    <span className="symbol" data-symbol={symbolKeys[page]} aria-hidden="true">
+      <svg
+        aria-hidden="true"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d={icons[page]} />
+      </svg>
+    </span>
   );
 }
 
@@ -420,16 +430,18 @@ export default function MacApp() {
               aria-controls="sidebar"
               onClick={() => setSidebarOpen((open) => !open)}
             >
-              <svg
-                aria-hidden="true"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.6"
-              >
-                <rect x="3" y="5" width="18" height="14" rx="3" />
-                <path d="M9 5v14" />
-              </svg>
+              <span className="symbol" data-symbol="sidebar">
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                >
+                  <rect x="3" y="5" width="18" height="14" rx="3" />
+                  <path d="M9 5v14" />
+                </svg>
+              </span>
             </button>
           )}
           <h1>{page}</h1>
@@ -442,16 +454,18 @@ export default function MacApp() {
             title="Refresh status"
             className="icon-button"
           >
-            <svg
-              aria-hidden="true"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-            >
-              <path d="M20 10a8 8 0 1 0-2 8M20 4v6h-6" />
-            </svg>
+            <span className="symbol" data-symbol="refresh">
+              <svg
+                aria-hidden="true"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+              >
+                <path d="M20 10a8 8 0 1 0-2 8M20 4v6h-6" />
+              </svg>
+            </span>
           </button>
         </header>
         <main

@@ -20,6 +20,7 @@ import type {
 } from '../../shared/macos';
 import { setWindowZoom, stepZoom } from './chrome';
 import { ComponentManager } from './component-manager';
+import { symbolCSS } from './symbols';
 import { prepareDolphinLibrary } from './dolphin-library';
 import { dolphin } from '../components/dolphin';
 import { readLibrary, selectLibrary, recoverLibrarySettings } from './library';
@@ -402,6 +403,8 @@ function createWindow(): void {
   };
   window.webContents.on('did-finish-load', () => {
     void applyAccent().catch(() => undefined);
+    // Real SF Symbols, rendered by AppKit, replace the fallback vector glyphs.
+    void window.webContents.insertCSS(symbolCSS()).catch(() => undefined);
   });
   const accentSubscription = systemPreferences.subscribeNotification(
     'AppleColorPreferencesChangedNotification',
