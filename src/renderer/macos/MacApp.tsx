@@ -31,7 +31,8 @@ const pages = sections.flatMap((section) => section.pages);
 const icons: Record<Page, string> = {
   Library: 'M3 7V5h6l2 2h10v13H3V7Z',
   Emulators: 'M6 7h12l3 10-3 2-4-4h-4l-4 4-3-2L6 7Zm1 4h4m-2-2v4m7-3h.1m2 2h.1',
-  'Console Mode': 'M4 11V8a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v3M2 13a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v5H2v-5Zm2 5v2m16-2v2',
+  'Console Mode':
+    'M4 11V8a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v3M2 13a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v5H2v-5Zm2 5v2m16-2v2',
   'This Mac': 'M3 4h18v13H3V4ZM8 21h8m-4-4v4',
   Development: 'M8 5 2 12l6 7m8-14 6 7-6 7M14 3l-4 18',
 };
