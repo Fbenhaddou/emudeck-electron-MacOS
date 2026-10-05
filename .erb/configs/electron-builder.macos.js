@@ -15,6 +15,12 @@ module.exports = {
   // release/app manifest is empty, pulling legacy updater/UI modules into asar.
   files: ['dist', 'package.json', '!node_modules{,/**/*}'],
   extraResources: [
+    // Console Mode's native helpers: the authenticated ES-DE wait client and the
+    // single-purpose frontend activation helper (resolved from Resources/helpers).
+    ...['console-launcher', 'activate-app'].map((name) => ({
+      from: `release/native/${name}`,
+      to: `helpers/${name}`,
+    })),
     {
       from: 'node_modules/electron/dist/LICENSE',
       to: 'licenses/Electron-LICENSE.txt',
