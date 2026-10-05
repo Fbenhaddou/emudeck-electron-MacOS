@@ -74,6 +74,7 @@ function setup(overrides: Partial<ConsoleDependencies> = {}) {
       setImmediate(() => child.emit('spawn'));
       return child as unknown as ChildProcess;
     }),
+    delay: jest.fn(async () => undefined),
     hideManager: jest.fn(),
     showManager: jest.fn(),
     ...overrides,
@@ -87,6 +88,31 @@ function setup(overrides: Partial<ConsoleDependencies> = {}) {
 }
 
 describe('ConsoleSession', () => {
+  it('brings the frontend forward after hiding the manager, retrying while its window appears', async () => {
+    const restoreFocus = jest
+      .fn()
+      .mockResolvedValueOnce('declined')
+      .mockResolvedValueOnce('failed')
+      .mockResolvedValue('frontmost');
+    const { session, deps } = setup({ restoreFocus });
+    await session.enter('/lib');
+    expect(restoreFocus).toHaveBeenCalledTimes(3);
+    expect(restoreFocus).toHaveBeenCalledWith(4242, '/managed/ES-DE.app');
+    expect(deps.delay).toHaveBeenCalledTimes(2);
+    // Order matters: activation must follow hiding, or the manager would compete.
+    expect(
+      (deps.hideManager as jest.Mock).mock.invocationCallOrder[0],
+    ).toBeLessThan(restoreFocus.mock.invocationCallOrder[0]);
+  });
+
+  it('gives up startup activation after bounded retries and stays open', async () => {
+    const restoreFocus = jest.fn(async () => 'declined' as const);
+    const { session } = setup({ restoreFocus });
+    await session.enter('/lib');
+    expect(restoreFocus).toHaveBeenCalledTimes(8);
+    expect(session.state).toBe('running');
+  });
+
   it('starts the isolated frontend with argv only and hides the manager', async () => {
     const { session, deps } = setup();
     await session.enter('/lib');
@@ -178,8 +204,8 @@ describe('ConsoleSession', () => {
     await flush();
     expect(session.state).toBe('idle');
     expect(broker.close).toHaveBeenCalled();
-    // A dead frontend cannot be focused; no activation is attempted.
-    expect(deps.restoreFocus).not.toHaveBeenCalled();
+    // Only the startup activation ran; a dead frontend is never focused after the game.
+    expect(deps.restoreFocus).toHaveBeenCalledTimes(1);
     expect(session.report?.error).toContain('closed unexpectedly');
   });
 

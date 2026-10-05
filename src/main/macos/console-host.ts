@@ -180,6 +180,10 @@ export function consoleDependencies(
       }
     },
     spawn: (command, args, options) => spawn(command, [...args], options),
+    delay: (milliseconds) =>
+      new Promise((resolve) => {
+        setTimeout(resolve, milliseconds);
+      }),
     hideManager: manager.hide,
     showManager: manager.show,
   };

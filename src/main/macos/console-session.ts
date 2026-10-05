@@ -59,6 +59,7 @@ export interface ConsoleDependencies {
   ): ChildProcess;
   hideManager(): void;
   showManager(): void;
+  delay(milliseconds: number): Promise<void>;
 }
 /* eslint-enable no-unused-vars */
 
@@ -68,6 +69,8 @@ export interface ConsoleReport {
   /** How the last session ended, shown in Management Mode afterwards. */
   frontendExit: { code: number | null; signal: string | null } | null;
   focus: FocusOutcome[];
+  /** Focus outcome when the frontend first opened. */
+  startFocus: FocusOutcome | null;
   games: number;
   error: string | null;
 }
@@ -126,6 +129,7 @@ export class ConsoleSession {
     const report: ConsoleReport = {
       frontendExit: null,
       focus: [],
+      startFocus: null,
       games: 0,
       error: null,
     };
@@ -202,6 +206,10 @@ export class ConsoleSession {
       this.current = 'running';
       deps.hideManager();
       this.onChange();
+      // Hiding the manager hands focus to whatever macOS picks next, not to the
+      // frontend (observed: another app stayed frontmost). An unfocused ES-DE
+      // ignores controller input, so bring it forward once its window exists.
+      report.startFocus = await this.focusFrontend(child, frontend.bundle);
     } catch (error) {
       report.error =
         error instanceof Error ? error.message : 'Console Mode could not start';
@@ -213,6 +221,24 @@ export class ConsoleSession {
       this.onChange();
       throw error;
     }
+  }
+
+  private async focusFrontend(
+    child: ChildProcess,
+    bundle: string,
+  ): Promise<FocusOutcome | null> {
+    let outcome: FocusOutcome | null = null;
+    // eslint-disable-next-line no-restricted-syntax -- Bounded sequential retries.
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      if (!child.pid || child.exitCode !== null || child.signalCode !== null)
+        return outcome;
+      // eslint-disable-next-line no-await-in-loop -- The window appears asynchronously.
+      outcome = await this.dependencies.restoreFocus(child.pid, bundle);
+      if (outcome === 'frontmost' || outcome === 'refused') return outcome;
+      // eslint-disable-next-line no-await-in-loop
+      await this.dependencies.delay(500);
+    }
+    return outcome;
   }
 
   private async play(
