@@ -56,15 +56,15 @@ describe('managed ES-DE installation', () => {
         return `${license}\n<?xml version="1.0"?><plist/>`;
       }
       if (binary.endsWith('plutil')) {
-        if (input === resources)
-          return JSON.stringify({
-            TEXT: [
-              {
-                Name: 'English',
-                Data: Buffer.from(license, 'latin1').toString('base64'),
-              },
-            ],
-          });
+        if (input === resources) {
+          // Like real plutil: the resource list has <data>, so JSON is refused.
+          if (args[0] !== '-extract')
+            throw new Error('Invalid object in plist for JSON format');
+          if (args[1] === 'TEXT.0.Name') return 'English\n';
+          if (args[1] === 'TEXT.0.Data')
+            return `${Buffer.from(license, 'latin1').toString('base64')}\n`;
+          throw new Error('No value at that key path');
+        }
         if (input === '<inventory/>')
           return JSON.stringify({
             images: mounts.map((mount) => ({

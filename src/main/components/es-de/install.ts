@@ -58,17 +58,29 @@ export async function readLicense(
   const resources = await run('/usr/bin/hdiutil', ['udifderez', '-xml', dmg]);
   if (Buffer.byteLength(resources) > 4 * 1024 * 1024)
     throw new Error('Disk image resources are too large');
-  const data = json(
-    await run(
+  // The resource list holds binary <data>, which JSON cannot represent; extract
+  // only the English license entry, whose data plutil prints as base64.
+  let encoded: string | null = null;
+  // eslint-disable-next-line no-restricted-syntax -- Few bounded sequential lookups.
+  for (let index = 0; index < 8 && encoded === null; index += 1) {
+    // eslint-disable-next-line no-await-in-loop
+    const name = await run(
       '/usr/bin/plutil',
-      ['-convert', 'json', '-o', '-', '-'],
+      ['-extract', `TEXT.${index}.Name`, 'raw', '-o', '-', '-'],
       resources,
-    ),
-  ) as Record<string, Array<{ Name?: unknown; Data?: unknown }>>;
-  const entry = (data?.TEXT || []).find((item) => item.Name === 'English');
-  if (!entry || typeof entry.Data !== 'string')
+    ).catch(() => null);
+    if (name === null) break;
+    if (name.trim() === 'English')
+      // eslint-disable-next-line no-await-in-loop
+      encoded = await run(
+        '/usr/bin/plutil',
+        ['-extract', `TEXT.${index}.Data`, 'raw', '-o', '-', '-'],
+        resources,
+      );
+  }
+  if (!encoded || !/^[A-Za-z0-9+/=\s]+$/.test(encoded))
     throw new Error('The ES-DE license agreement could not be read');
-  const bytes = Buffer.from(entry.Data, 'base64');
+  const bytes = Buffer.from(encoded.replace(/\s/g, ''), 'base64');
   if (!bytes.length || bytes.length > 64 * 1024)
     throw new Error('The ES-DE license agreement could not be read');
   let text: string;
