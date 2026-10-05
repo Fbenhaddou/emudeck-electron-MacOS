@@ -20,12 +20,14 @@ describe('symbolCSS', () => {
     expect(render.mock.calls.map(([name]) => name)).toEqual([
       'folder',
       'gamecontroller',
+      'sofa',
       'display',
       'chevron.left.forwardslash.chevron.right',
       'arrow.clockwise',
       'sidebar.left',
       'folder.fill',
       'gamecontroller.fill',
+      'sofa.fill',
       'display',
       'chevron.left.forwardslash.chevron.right',
     ]);

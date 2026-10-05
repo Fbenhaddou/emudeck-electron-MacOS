@@ -420,6 +420,9 @@ main {
 .tile.indigo {
   background: linear-gradient(#7a74ff, #4c44d8);
 }
+.tile.green {
+  background: linear-gradient(#4cd964, #22a63c);
+}
 .tile.gray {
   background: linear-gradient(#a2a2a8, #6f6f76);
 }

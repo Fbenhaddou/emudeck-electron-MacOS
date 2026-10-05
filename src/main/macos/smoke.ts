@@ -401,7 +401,12 @@ export default class SmokeHarness {
     await this.menuRefresh(window);
     await this.appearances(window, 'window', 'First launch / Library');
     // eslint-disable-next-line no-restricted-syntax -- Navigate the same real renderer in sequence.
-    for (const page of ['Emulators', 'This Mac', 'Development']) {
+    for (const page of [
+      'Emulators',
+      'Console Mode',
+      'This Mac',
+      'Development',
+    ]) {
       // eslint-disable-next-line no-await-in-loop
       await this.navigate(window, page);
       // eslint-disable-next-line no-await-in-loop
@@ -542,6 +547,37 @@ export default class SmokeHarness {
       'Emulators / advanced settings / synthetic installed receipt',
       true,
     );
+
+    // A fabricated ES-DE receipt exercises the ready UI only. No bundle exists,
+    // and Open Console Mode is never pressed, so nothing is launched.
+    const syntheticFrontend = path.join(userData, 'components', 'es-de');
+    await fs.mkdir(path.join(syntheticFrontend, '3.5.0'), {
+      recursive: true,
+      mode: 0o700,
+    });
+    await fs.chmod(syntheticFrontend, 0o700);
+    await fs.writeFile(
+      path.join(syntheticFrontend, '3.5.0', 'receipt.json'),
+      JSON.stringify({
+        version: '3.5.0',
+        sha256:
+          '060bd289fa17f8f07bac2eb688698047f7be79b80495983f08580b5f1a046e1e',
+        smokeRenderingFixture: true,
+      }),
+    );
+    await this.navigate(window, 'Console Mode');
+    await this.refresh(
+      window,
+      `document.querySelector('main')?.textContent.includes('Frontend · Version 3.5.0')`,
+      'synthetic ES-DE receipt',
+    );
+    await this.appearances(
+      window,
+      'console-ready',
+      'Console Mode / ready / synthetic receipts',
+      true,
+    );
+    await this.navigate(window, 'Emulators');
 
     // eslint-disable-next-line no-restricted-syntax -- Appearance and zoom mutate one window sequentially.
     for (const theme of ['light', 'dark'] as const) {

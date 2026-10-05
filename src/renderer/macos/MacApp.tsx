@@ -13,21 +13,25 @@ declare global {
     mac: MacAPI;
   }
 }
-type Page = 'Library' | 'Emulators' | 'This Mac' | 'Development';
+type Page =
+  'Library' | 'Emulators' | 'Console Mode' | 'This Mac' | 'Development';
 type Action =
   | 'choosing-library'
   | 'recovering-library'
   | 'installing'
   | 'choosing-game'
-  | 'resetting';
+  | 'resetting'
+  | 'installing-console'
+  | 'opening-console';
 const sections: { title: string; pages: Page[] }[] = [
-  { title: 'Workspace', pages: ['Library', 'Emulators'] },
+  { title: 'Workspace', pages: ['Library', 'Emulators', 'Console Mode'] },
   { title: 'System', pages: ['This Mac', 'Development'] },
 ];
 const pages = sections.flatMap((section) => section.pages);
 const icons: Record<Page, string> = {
   Library: 'M3 7V5h6l2 2h10v13H3V7Z',
   Emulators: 'M6 7h12l3 10-3 2-4-4h-4l-4 4-3-2L6 7Zm1 4h4m-2-2v4m7-3h.1m2 2h.1',
+  'Console Mode': 'M4 11V8a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v3M2 13a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v5H2v-5Zm2 5v2m16-2v2',
   'This Mac': 'M3 4h18v13H3V4ZM8 21h8m-4-4v4',
   Development: 'M8 5 2 12l6 7m8-14 6 7-6 7M14 3l-4 18',
 };
@@ -35,6 +39,7 @@ const icons: Record<Page, string> = {
 const symbolKeys: Record<Page, string> = {
   Library: 'library',
   Emulators: 'emulators',
+  'Console Mode': 'console',
   'This Mac': 'this-mac',
   Development: 'development',
 };
@@ -272,7 +277,12 @@ export default function MacApp() {
   const busy = action !== null;
   const dolphinOperation = status?.dolphin.operation || 'idle';
   useEffect(() => {
-    if (!busy && dolphinOperation === 'idle') return undefined;
+    if (
+      !busy &&
+      dolphinOperation === 'idle' &&
+      (status?.console.state || 'idle') === 'idle'
+    )
+      return undefined;
     let cancelled = false;
     let timer: number;
     const poll = async () => {
@@ -284,7 +294,7 @@ export default function MacApp() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [busy, dolphinOperation, refresh]);
+  }, [busy, dolphinOperation, status?.console.state, refresh]);
   const refreshAfterAction = async () => {
     // A poll started before a mutation may contain the previous library/version.
     if (statusRequest.current) await statusRequest.current;
@@ -369,6 +379,31 @@ export default function MacApp() {
     busy || Boolean(status && status.dolphin.operation !== 'idle');
   const choosingLibrary = action === 'choosing-library';
   const chooseLabel = choosingLibrary ? 'Choosing…' : 'Choose Folder…';
+  const consoleState = status?.console.state || 'idle';
+  const consoleBusy = consoleState !== 'idle';
+  const consoleMessages: Partial<Record<typeof consoleState, string>> = {
+    installing: 'Installing ES-DE… Downloading and verifying the application.',
+    starting: 'Opening Console Mode…',
+    running: 'Console Mode is open. Choose Quit ES-DE in its menu to return.',
+    stopping: 'Closing Console Mode…',
+  };
+  let consoleMessage = consoleMessages[consoleState] || '';
+  if (!consoleMessage && action === 'installing-console')
+    consoleMessage = consoleMessages.installing || '';
+  const consoleSpinner = Boolean(consoleMessage) && consoleState !== 'running';
+  let consoleRequirement =
+    'Fullscreen and controller-first. Emulation Workspace hides until you quit.';
+  if (!status?.library?.available)
+    consoleRequirement = 'Choose an available library in Library first.';
+  else if (!status?.dolphin.version)
+    consoleRequirement = 'Install Dolphin in Emulators first.';
+  else if (!status?.console.frontend)
+    consoleRequirement = 'Install ES-DE above first.';
+  const consoleReady = Boolean(
+    status?.library?.available &&
+    status?.dolphin.version &&
+    status?.console.frontend,
+  );
   const operationMessages: Record<
     Exclude<MacStatus['dolphin']['operation'], 'idle'>,
     string
@@ -738,6 +773,90 @@ export default function MacApp() {
                     <p className="footnote">
                       Console Mode and controller configuration are still in
                       development.
+                    </p>
+                  </>
+                )}
+                {page === 'Console Mode' && (
+                  <>
+                    <Hero page="Console Mode" tint="green" title="Console Mode">
+                      Browse and play your games from the couch. To come back
+                      here, open the menu and choose Quit ES-DE.
+                    </Hero>
+                    <section
+                      className="group"
+                      aria-label="Console Mode"
+                      aria-busy={
+                        status.console.state === 'installing' ||
+                        status.console.state === 'starting' ||
+                        status.console.state === 'stopping'
+                      }
+                    >
+                      <div className="row">
+                        <div className="row-text">
+                          <h3>ES-DE</h3>
+                          <p>
+                            {status.console.frontend
+                              ? `Frontend · Version ${status.console.frontend}`
+                              : 'Frontend · Official release for Apple Silicon'}
+                          </p>
+                        </div>
+                        {!status.console.frontend && (
+                          <button
+                            type="button"
+                            className="primary"
+                            disabled={emulatorBusy || consoleBusy}
+                            onClick={() => {
+                              void operate('installing-console', () =>
+                                window.mac.installConsole(),
+                              );
+                            }}
+                          >
+                            Install ES-DE…
+                          </button>
+                        )}
+                      </div>
+                      {consoleMessage && (
+                        <div className="row progress" role="status">
+                          {consoleSpinner && <Spinner />}
+                          <p>{consoleMessage}</p>
+                        </div>
+                      )}
+                      {status.console.lastError &&
+                        status.console.state === 'idle' && (
+                          <div className="row alert" role="alert">
+                            <Caution />
+                            <p>{status.console.lastError}</p>
+                          </div>
+                        )}
+                      <div className="row">
+                        <div className="row-text">
+                          <h3>Open Console Mode</h3>
+                          <p>{consoleRequirement}</p>
+                        </div>
+                        <button
+                          type="button"
+                          className={consoleReady ? 'primary' : ''}
+                          disabled={
+                            !consoleReady || emulatorBusy || consoleBusy
+                          }
+                          onClick={() => {
+                            void operate('opening-console', () =>
+                              window.mac.enterConsole(),
+                            );
+                          }}
+                        >
+                          Open Console Mode
+                        </button>
+                      </div>
+                    </section>
+                    <p className="footnote">
+                      ES-DE is installed from its reviewed official release
+                      after you agree to its license. Games and saves stay in
+                      your library.
+                    </p>
+                    <p className="footnote">
+                      Controller-only play is in preview: physical DualSense
+                      testing has not been completed yet.
                     </p>
                   </>
                 )}

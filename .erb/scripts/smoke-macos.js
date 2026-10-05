@@ -93,6 +93,7 @@ async function run() {
     ...[
       'window',
       'page-emulators',
+      'page-console-mode',
       'page-this-mac',
       'page-development',
       'library-selected',
@@ -101,6 +102,7 @@ async function run() {
       'emulators-library',
       'emulators-installed',
       'emulators-advanced',
+      'console-ready',
     ].flatMap((prefix) =>
       ['light', 'dark', 'small'].map((variant) => `${prefix}-${variant}.png`),
     ),

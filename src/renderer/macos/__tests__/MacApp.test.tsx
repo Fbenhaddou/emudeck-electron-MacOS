@@ -258,3 +258,75 @@ it('keeps future capabilities honestly labeled', async () => {
   expect(screen.getByText('Not tested')).toBeInTheDocument();
   expect(screen.queryByRole('button', { name: /install/i })).toBeNull();
 });
+describe('Console Mode page', () => {
+  const ready: MacStatus = {
+    ...status,
+    library: { path: '/Volumes/Games', available: true },
+    dolphin: { version: '2609', operation: 'idle' },
+    console: { frontend: '3.5.0', state: 'idle', lastError: null, games: null },
+  };
+  async function open(current: MacStatus) {
+    (window.mac.getStatus as jest.Mock).mockResolvedValue(current);
+    render(<MacApp />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Console Mode' }),
+    );
+    return screen.findByRole('button', { name: 'Open Console Mode' });
+  }
+
+  it.each([
+    [status, 'Choose an available library in Library first.'],
+    [
+      { ...ready, dolphin: { version: null, operation: 'idle' as const } },
+      'Install Dolphin in Emulators first.',
+    ],
+    [
+      { ...ready, console: { ...ready.console, frontend: null } },
+      'Install ES-DE above first.',
+    ],
+  ])(
+    'explains what is missing and keeps Open disabled %#',
+    async (current, reason) => {
+      const button = await open(current as MacStatus);
+      expect(button).toBeDisabled();
+      expect(screen.getByText(reason)).toBeInTheDocument();
+    },
+  );
+
+  it('installs ES-DE through the zero-argument bridge', async () => {
+    await open({ ...ready, console: { ...ready.console, frontend: null } });
+    fireEvent.click(screen.getByRole('button', { name: 'Install ES-DE…' }));
+    await waitFor(() =>
+      expect(window.mac.installConsole).toHaveBeenCalledWith(),
+    );
+  });
+
+  it('opens Console Mode when everything is ready', async () => {
+    const button = await open(ready);
+    expect(button).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Install ES-DE…' })).toBeNull();
+    fireEvent.click(button);
+    await waitFor(() => expect(window.mac.enterConsole).toHaveBeenCalledWith());
+  });
+
+  it('shows the last session problem as an alert', async () => {
+    await open({
+      ...ready,
+      console: {
+        ...ready.console,
+        lastError:
+          'Console Mode closed unexpectedly. Your games and saves are unchanged.',
+      },
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('closed unexpectedly');
+  });
+
+  it('disables actions while Console Mode is open', async () => {
+    const button = await open({
+      ...ready,
+      console: { ...ready.console, state: 'running' },
+    });
+    expect(button).toBeDisabled();
+    expect(screen.getByRole('status')).toHaveTextContent('Choose Quit ES-DE');
+  });
+});

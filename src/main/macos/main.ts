@@ -10,6 +10,7 @@ import {
   systemPreferences,
 } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
+import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
@@ -158,7 +159,7 @@ async function getStatus(): Promise<MacStatus> {
   let frontend: string | null = null;
   try {
     // Status is read-only: never create folders; absent means not installed.
-    frontend = await installedVersion(frontendRoot);
+    frontend = await installedVersion(await fs.realpath(frontendRoot));
   } catch {
     frontend = null;
   }

@@ -8,6 +8,7 @@ import { nativeImage } from 'electron';
 const symbols: Readonly<Record<string, string>> = Object.freeze({
   library: 'folder',
   emulators: 'gamecontroller',
+  console: 'sofa',
   // Outline monitor: a multi-layer symbol would flatten into a filled mask.
   'this-mac': 'display',
   development: 'chevron.left.forwardslash.chevron.right',
@@ -16,6 +17,7 @@ const symbols: Readonly<Record<string, string>> = Object.freeze({
   // Pane-header tiles use filled glyphs, as System Settings does.
   'library-fill': 'folder.fill',
   'emulators-fill': 'gamecontroller.fill',
+  'console-fill': 'sofa.fill',
   'this-mac-fill': 'display',
   'development-fill': 'chevron.left.forwardslash.chevron.right',
 });
