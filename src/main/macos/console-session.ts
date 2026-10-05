@@ -2,6 +2,7 @@ import path from 'path';
 import type { ChildProcess, SpawnOptions } from 'child_process';
 import type { Catalog, CatalogEntry } from '../components/es-de/catalog';
 import type { PublishedProfile } from '../components/es-de/profile';
+import { activateUntilHeld } from './focus';
 import type { FocusOutcome } from './focus';
 
 /* eslint-disable no-unused-vars -- Names document the injected contracts. */
@@ -214,6 +215,8 @@ export class ConsoleSession {
       // frontend (observed: another app stayed frontmost). An unfocused ES-DE
       // ignores controller input, so bring it forward once its window exists.
       report.startFocus = await this.focusFrontend(child, frontend.bundle);
+      this.lastReport = report;
+      this.onChange();
     } catch (error) {
       report.error =
         error instanceof Error ? error.message : 'Console Mode could not start';
@@ -228,25 +231,18 @@ export class ConsoleSession {
     }
   }
 
-  /** Focus must hold: a frontmost result is re-checked once before it counts. */
-  private async focusFrontend(
+  private focusFrontend(
     child: ChildProcess,
     bundle: string,
   ): Promise<FocusOutcome | null> {
-    let outcome: FocusOutcome | null = null;
-    let held = 0;
-    // eslint-disable-next-line no-restricted-syntax -- Bounded sequential retries.
-    for (let attempt = 0; attempt < 10 && held < 2; attempt += 1) {
-      if (!child.pid || child.exitCode !== null || child.signalCode !== null)
-        return outcome;
-      // eslint-disable-next-line no-await-in-loop -- The window appears asynchronously.
-      outcome = await this.dependencies.restoreFocus(child.pid, bundle);
-      if (outcome === 'refused') return outcome;
-      held = outcome === 'frontmost' ? held + 1 : 0;
-      // eslint-disable-next-line no-await-in-loop
-      if (held < 2) await this.dependencies.delay(500);
-    }
-    return outcome;
+    return activateUntilHeld(
+      () => this.dependencies.restoreFocus(child.pid as number, bundle),
+      this.dependencies.delay,
+      () =>
+        Boolean(child.pid) &&
+        child.exitCode === null &&
+        child.signalCode === null,
+    );
   }
 
   private async play(

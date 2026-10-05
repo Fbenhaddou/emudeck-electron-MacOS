@@ -1,7 +1,7 @@
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import { restoreFocus } from '../focus';
+import { activateUntilHeld, restoreFocus } from '../focus';
 
 const helper =
   '/Applications/Emulation Workspace.app/Contents/Helpers/activate-app';
@@ -23,6 +23,7 @@ describe('restoreFocus', () => {
 
   it.each([
     [2, 'declined'],
+    [3, 'not-ready'],
     [1, 'refused'],
     [-1, 'failed'],
     [137, 'failed'],
@@ -90,5 +91,38 @@ const hasNative = process.platform === 'darwin' && fs.existsSync(native);
     await expect(
       restoreFocus(native, pid(), '/System/Applications/Calculator.app'),
     ).resolves.toBe('refused');
+  });
+});
+
+describe('activateUntilHeld', () => {
+  const delay = jest.fn(async () => undefined);
+  beforeEach(() => delay.mockClear());
+
+  it('needs two consecutive frontmost results', async () => {
+    const activate = jest
+      .fn()
+      .mockResolvedValueOnce('not-ready')
+      .mockResolvedValueOnce('frontmost')
+      .mockResolvedValueOnce('declined')
+      .mockResolvedValue('frontmost');
+    await expect(activateUntilHeld(activate, delay)).resolves.toBe('frontmost');
+    expect(activate).toHaveBeenCalledTimes(5);
+  });
+
+  it('stops immediately on refusal', async () => {
+    const activate = jest.fn(async () => 'refused' as const);
+    await expect(activateUntilHeld(activate, delay)).resolves.toBe('refused');
+    expect(activate).toHaveBeenCalledTimes(1);
+  });
+
+  it('is bounded and stops when the target is gone', async () => {
+    const activate = jest.fn(async () => 'declined' as const);
+    await expect(
+      activateUntilHeld(activate, delay, () => true, 4),
+    ).resolves.toBe('declined');
+    expect(activate).toHaveBeenCalledTimes(4);
+    activate.mockClear();
+    await activateUntilHeld(activate, delay, () => false);
+    expect(activate).not.toHaveBeenCalled();
   });
 });

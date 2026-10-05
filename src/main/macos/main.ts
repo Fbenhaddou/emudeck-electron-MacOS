@@ -22,6 +22,7 @@ import type {
 import { setWindowZoom, stepZoom } from './chrome';
 import { consoleDependencies, privateDirectory } from './console-host';
 import { ConsoleSession } from './console-session';
+import { activateUntilHeld, restoreFocus } from './focus';
 import { installFrontend, installedVersion } from '../components/es-de/install';
 import { ComponentManager } from './component-manager';
 import { symbolCSS } from './symbols';
@@ -118,13 +119,45 @@ consoleSession = new ConsoleSession(
       show: () => {
         app.show();
         mainWindow?.show();
-        app.focus({ steal: true });
         mainWindow?.focus();
+        // app.focus() is ignored under cooperative activation once the frontend
+        // quits; activate this exact app through the verified helper instead.
+        void activateUntilHeld(
+          () =>
+            restoreFocus(
+              path.join(helpers, 'activate-app'),
+              process.pid,
+              path.resolve(process.execPath, '..', '..', '..'),
+            ),
+          (milliseconds) =>
+            new Promise((resolve) => {
+              setTimeout(resolve, milliseconds);
+            }),
+        ).then((outcome) =>
+          process.stderr.write(
+            `${JSON.stringify({ event: 'manager-focus', outcome })}\n`,
+          ),
+        );
       },
     },
   ),
   // eslint-disable-next-line no-use-before-define -- Hoisted; runs after startup.
-  () => refreshStatusFromMenu(),
+  () => {
+    // Structured, path-free diagnostics: states and outcomes only.
+    const report = consoleSession?.report;
+    process.stderr.write(
+      `${JSON.stringify({
+        event: 'console-mode',
+        state: consoleSession?.state,
+        startFocus: report?.startFocus ?? null,
+        gameFocus: report?.focus ?? [],
+        exit: report?.frontendExit ?? null,
+        error: report?.error ?? null,
+      })}\n`,
+    );
+    // eslint-disable-next-line no-use-before-define -- Hoisted; runs after startup.
+    refreshStatusFromMenu();
+  },
 );
 function operationBusy(): boolean {
   return (

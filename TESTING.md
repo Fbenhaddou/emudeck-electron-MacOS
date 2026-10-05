@@ -20,6 +20,16 @@ macos-15 is an ARM64 hosted runner per [GitHub's runner reference](https://docs.
 
 The smoke run is ~50 s of real captures. Its watchdogs are 110 s (in-app) and 120 s (runner). Focus assertions make the window key first because `:focus-visible` only matches in the key window; earlier failures occurred whenever another app was frontmost. One intermittent mid-run stall (watchdog expiry after ~8 captures) was observed on 2026-10-04 and did not reproduce in 6 later runs; treat a single watchdog failure as a rerun signal, two consecutive failures as a regression. `capturePage` cannot see native vibrancy or window chrome, so the harness paints the reduced-transparency sidebar color; review real window captures (`screencapture -l <window id>`) for material and traffic-light placement.
 
+## Console Mode end-to-end (packaged)
+
+Run the packaged app with isolated data and the product's privacy identity:
+
+```
+open -n --stderr <log> --env EMULATION_SMOKE_DIR="$TMPDIR/emulation-e2e-XXXXXX" --env EMULATION_SMOKE_INTERACTIVE=1 -a "release/build-macos/mac-arm64/Emulation Workspace.app"
+```
+
+Seed a library (`library.json` with device/inode identity) containing only legal fixtures and copy a verified Dolphin install with its receipt. Install ES-DE through the UI; the owner must answer the license sheet. Pass criteria per cycle, from the stderr `console-mode`/`manager-focus` JSON lines plus `lsappinfo front`: `startFocus`, every `gameFocus` and `manager-focus` are `frontmost`, frontend exit 0, playtime persists, ROM hash unchanged, no `~/ES-DE`. Electron ignores background synthetic input, so drive the window in the foreground. Fixtures kept in `$TMPDIR` are purged by macOS after a few days (a Dolphin copy lost its Info.plist); re-verify signatures before reuse.
+
 ## Native activation helper
 
 `node .erb/scripts/build-macos-native.js` builds `release/native/activate-app` alongside the console client. `focus.test.ts` exercises its argv contract and, when built, real native refusals (root-owned process, process outside the bundle). The 2026-10-04 manual measurement on macOS 27 activated a background-launched app 6/6 times with Finder or TextEdit frontmost (verified with `lsappinfo front` before and after). This is not yet ES-DE evidence.

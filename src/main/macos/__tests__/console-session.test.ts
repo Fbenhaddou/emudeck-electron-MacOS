@@ -91,7 +91,8 @@ describe('ConsoleSession', () => {
   it('hides the manager before the frontend starts, then requires focus to hold', async () => {
     const restoreFocus = jest
       .fn()
-      .mockResolvedValueOnce('declined')
+      // Just spawned: not yet registered as an application, then activated.
+      .mockResolvedValueOnce('not-ready')
       .mockResolvedValueOnce('frontmost')
       // Focus lost when a late hide completed: activate again.
       .mockResolvedValueOnce('declined')
@@ -103,7 +104,7 @@ describe('ConsoleSession', () => {
     expect(
       (deps.hideManager as jest.Mock).mock.invocationCallOrder[0],
     ).toBeLessThan((deps.spawn as jest.Mock).mock.invocationCallOrder[0]);
-    expect(session.report).toBeNull();
+    expect(session.report?.startFocus).toBe('frontmost');
   });
 
   it('gives up startup activation after bounded retries and stays open', async () => {

@@ -4,11 +4,12 @@
 // focus-restoration code of its own. Only main invokes this; it activates nothing else.
 //
 // Usage: activate-app --pid <pid> --bundle <absolute .app path>
-// Exit status: 0 frontmost, 2 macOS declined activation, 1 invalid or unsafe request.
+// Exit status: 0 frontmost, 2 macOS declined activation, 3 not yet registered as an
+// application (just launched; retry), 1 invalid or unsafe request.
 import AppKit
 import Darwin
 
-enum ActivationFailure: Error { case invalid }
+enum ActivationFailure: Error { case invalid, notReady }
 
 func require(_ condition: Bool) throws {
     if !condition { throw ActivationFailure.invalid }
@@ -72,7 +73,11 @@ func validatedApplication() throws -> Target {
     try require(bundle == args[4])
     let unique = try uniqueID(pid)
     try verify(pid, bundle, unique)
-    guard let application = NSRunningApplication(processIdentifier: pid),
+    // A freshly spawned process is verified above but may not have registered
+    // with the window server yet; that is "not ready", not an invalid request.
+    guard let candidate = NSRunningApplication(processIdentifier: pid),
+        candidate.bundleURL != nil else { throw ActivationFailure.notReady }
+    guard let application = Optional(candidate),
         application.processIdentifier == pid,
         !application.isTerminated,
         let bundleURL = application.bundleURL,
@@ -103,6 +108,9 @@ func activate() throws -> Int32 {
 }
 
 do { exit(try activate()) }
+catch ActivationFailure.notReady {
+    exit(3)
+}
 catch {
     fputs("Activation request was refused as invalid.\n", stderr)
     exit(1)
