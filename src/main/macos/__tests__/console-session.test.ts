@@ -88,29 +88,43 @@ function setup(overrides: Partial<ConsoleDependencies> = {}) {
 }
 
 describe('ConsoleSession', () => {
-  it('brings the frontend forward after hiding the manager, retrying while its window appears', async () => {
+  it('hides the manager before the frontend starts, then requires focus to hold', async () => {
     const restoreFocus = jest
       .fn()
       .mockResolvedValueOnce('declined')
-      .mockResolvedValueOnce('failed')
+      .mockResolvedValueOnce('frontmost')
+      // Focus lost when a late hide completed: activate again.
+      .mockResolvedValueOnce('declined')
       .mockResolvedValue('frontmost');
     const { session, deps } = setup({ restoreFocus });
     await session.enter('/lib');
-    expect(restoreFocus).toHaveBeenCalledTimes(3);
+    expect(restoreFocus).toHaveBeenCalledTimes(5);
     expect(restoreFocus).toHaveBeenCalledWith(4242, '/managed/ES-DE.app');
-    expect(deps.delay).toHaveBeenCalledTimes(2);
-    // Order matters: activation must follow hiding, or the manager would compete.
     expect(
       (deps.hideManager as jest.Mock).mock.invocationCallOrder[0],
-    ).toBeLessThan(restoreFocus.mock.invocationCallOrder[0]);
+    ).toBeLessThan((deps.spawn as jest.Mock).mock.invocationCallOrder[0]);
+    expect(session.report).toBeNull();
   });
 
   it('gives up startup activation after bounded retries and stays open', async () => {
     const restoreFocus = jest.fn(async () => 'declined' as const);
     const { session } = setup({ restoreFocus });
     await session.enter('/lib');
-    expect(restoreFocus).toHaveBeenCalledTimes(8);
+    expect(restoreFocus).toHaveBeenCalledTimes(10);
     expect(session.state).toBe('running');
+  });
+
+  it('shows the manager again if the frontend fails to start after hiding', async () => {
+    const { session, deps } = setup({
+      spawn: jest.fn(() => {
+        const failed = new EventEmitter();
+        setImmediate(() => failed.emit('error', new Error('spawn EACCES')));
+        return failed as unknown as ChildProcess;
+      }),
+    });
+    await expect(session.enter('/lib')).rejects.toThrow('EACCES');
+    expect(deps.hideManager).toHaveBeenCalled();
+    expect(deps.showManager).toHaveBeenCalled();
   });
 
   it('starts the isolated frontend with argv only and hides the manager', async () => {
@@ -204,8 +218,8 @@ describe('ConsoleSession', () => {
     await flush();
     expect(session.state).toBe('idle');
     expect(broker.close).toHaveBeenCalled();
-    // Only the startup activation ran; a dead frontend is never focused after the game.
-    expect(deps.restoreFocus).toHaveBeenCalledTimes(1);
+    // Only the two startup checks ran; a dead frontend is never focused after the game.
+    expect(deps.restoreFocus).toHaveBeenCalledTimes(2);
     expect(session.report?.error).toContain('closed unexpectedly');
   });
 
@@ -244,7 +258,8 @@ describe('ConsoleSession', () => {
     await expect(session.enter('/lib')).rejects.toThrow('EACCES');
     expect(broker.close).toHaveBeenCalled();
     expect(deps.removeRuntime).toHaveBeenCalled();
-    expect(deps.hideManager).not.toHaveBeenCalled();
+    // Hidden before spawning, so a failed start must show it again.
+    expect(deps.showManager).toHaveBeenCalled();
     expect(session.state).toBe('idle');
   });
 

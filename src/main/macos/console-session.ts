@@ -125,6 +125,7 @@ export class ConsoleSession {
     this.onChange();
     const deps = this.dependencies;
     let runtime: string | null = null;
+    let hidden = false;
     let broker: { close(): Promise<void> } | null = null;
     const report: ConsoleReport = {
       frontendExit: null,
@@ -163,6 +164,10 @@ export class ConsoleSession {
       broker = await deps.startBroker(runtime, new Set(byID.keys()), (id) =>
         this.play(library, frontend, byID.get(id), report),
       );
+      // Hide before the frontend appears: hiding completes asynchronously and
+      // would otherwise hand focus to another app after ES-DE was activated.
+      deps.hideManager();
+      hidden = true;
       const child = deps.spawn(
         frontend.executable,
         [
@@ -204,7 +209,6 @@ export class ConsoleSession {
       });
       await started;
       this.current = 'running';
-      deps.hideManager();
       this.onChange();
       // Hiding the manager hands focus to whatever macOS picks next, not to the
       // frontend (observed: another app stayed frontmost). An unfocused ES-DE
@@ -216,6 +220,7 @@ export class ConsoleSession {
       this.frontendChild = null;
       await broker?.close().catch(() => undefined);
       if (runtime) await deps.removeRuntime(runtime).catch(() => undefined);
+      if (hidden) deps.showManager();
       this.lastReport = report;
       this.current = 'idle';
       this.onChange();
@@ -223,20 +228,23 @@ export class ConsoleSession {
     }
   }
 
+  /** Focus must hold: a frontmost result is re-checked once before it counts. */
   private async focusFrontend(
     child: ChildProcess,
     bundle: string,
   ): Promise<FocusOutcome | null> {
     let outcome: FocusOutcome | null = null;
+    let held = 0;
     // eslint-disable-next-line no-restricted-syntax -- Bounded sequential retries.
-    for (let attempt = 0; attempt < 8; attempt += 1) {
+    for (let attempt = 0; attempt < 10 && held < 2; attempt += 1) {
       if (!child.pid || child.exitCode !== null || child.signalCode !== null)
         return outcome;
       // eslint-disable-next-line no-await-in-loop -- The window appears asynchronously.
       outcome = await this.dependencies.restoreFocus(child.pid, bundle);
-      if (outcome === 'frontmost' || outcome === 'refused') return outcome;
+      if (outcome === 'refused') return outcome;
+      held = outcome === 'frontmost' ? held + 1 : 0;
       // eslint-disable-next-line no-await-in-loop
-      await this.dependencies.delay(500);
+      if (held < 2) await this.dependencies.delay(500);
     }
     return outcome;
   }
