@@ -232,6 +232,24 @@ export class ComponentManager {
     }
   }
 
+  /**
+   * Emergency stop for a game whose emulator no longer responds. Only this
+   * manager's own child is signalled: a polite stop first, forced after a grace
+   * period if the emulator is deadlocked. Returns false when no game is running.
+   */
+  forceStop(graceMilliseconds = 4000): boolean {
+    const { child } = this;
+    if (!child || child.exitCode !== null || child.signalCode !== null)
+      return false;
+    child.kill('SIGTERM');
+    const timer = setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null)
+        child.kill('SIGKILL');
+    }, graceMilliseconds);
+    child.once('exit', () => clearTimeout(timer));
+    return true;
+  }
+
   get isBusy(): boolean {
     return (
       this.operation !== 'idle' || this.child !== null || this.externalSession

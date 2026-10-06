@@ -15,6 +15,7 @@ fs.mkdirSync(output, { recursive: true });
 for (const [source, binary] of [
   ['ConsoleLauncher.swift', 'console-launcher'],
   ['ActivateApp.swift', 'activate-app'],
+  ['ConsoleGuardian.swift', 'console-guardian'],
 ]) {
   execFileSync(
     '/usr/bin/xcrun',

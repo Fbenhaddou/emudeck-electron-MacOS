@@ -232,6 +232,50 @@ describe('component manager operation and installation boundaries', () => {
     expect(exited).toHaveBeenCalledTimes(1);
   });
 
+  const wait = (milliseconds: number) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, milliseconds);
+    });
+
+  async function running() {
+    await receipt();
+    const deps = dependencies();
+    (deps.spawn as jest.Mock).mockImplementation(() => {
+      process.nextTick(() => child.emit('spawn'));
+      return child;
+    });
+    const kill = jest.fn(() => true);
+    Object.assign(child, { kill });
+    const manager = new ComponentManager(root, () => undefined, deps);
+    expect(manager.forceStop()).toBe(false);
+    const finished = manager.launchAndWait(
+      root,
+      path.join(root, 'roms/gc/legal.dol'),
+    );
+    await wait(5);
+    return { manager, kill, finished };
+  }
+
+  it('force-stops only its own running game: polite first, forced after the grace period', async () => {
+    const { manager, kill, finished } = await running();
+    expect(manager.forceStop(30)).toBe(true);
+    expect(kill).toHaveBeenCalledWith('SIGTERM');
+    // A deadlocked emulator ignores SIGTERM: escalate after the grace period.
+    await wait(60);
+    expect(kill).toHaveBeenLastCalledWith('SIGKILL');
+    child.emit('exit', null, 'SIGKILL');
+    await expect(finished).resolves.toEqual({ code: null, signal: 'SIGKILL' });
+  });
+
+  it('does not escalate when the game exits during the grace period', async () => {
+    const { manager, kill, finished } = await running();
+    manager.forceStop(30);
+    child.emit('exit', 0, null);
+    await wait(60);
+    expect(kill).toHaveBeenCalledTimes(1);
+    await finished;
+  });
+
   it('does not lose completion when the child exits immediately after spawn', async () => {
     await receipt();
     const deps = dependencies();

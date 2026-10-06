@@ -16,21 +16,23 @@ const devices: Record<InputFamily, string> = {
   ps5: 'SDL/0/DualSense Wireless Controller',
 };
 
+// Measured with a physical DualSense on Dolphin 2609: SDL reports up as Y+, and
+// PlayStation players expect ○ to cancel, so GameCube B is ○ and X is □.
 function pad(device: string): string {
   return `[GCPad1]
 Device = ${device}
 Buttons/A = \`Button S\`
-Buttons/B = \`Button W\`
-Buttons/X = \`Button E\`
+Buttons/B = \`Button E\`
+Buttons/X = \`Button W\`
 Buttons/Y = \`Button N\`
 Buttons/Z = \`Shoulder R\`
 Buttons/Start = \`Start\`
-Main Stick/Up = \`Left Y-\`
-Main Stick/Down = \`Left Y+\`
+Main Stick/Up = \`Left Y+\`
+Main Stick/Down = \`Left Y-\`
 Main Stick/Left = \`Left X-\`
 Main Stick/Right = \`Left X+\`
-C-Stick/Up = \`Right Y-\`
-C-Stick/Down = \`Right Y+\`
+C-Stick/Up = \`Right Y+\`
+C-Stick/Down = \`Right Y-\`
 C-Stick/Left = \`Right X-\`
 C-Stick/Right = \`Right X+\`
 Triggers/L = \`Trigger L\`
@@ -108,13 +110,20 @@ export async function applyManagedInput(
   ownershipFile: string,
   family: InputFamily,
 ): Promise<InputResult> {
-  const owned: Record<string, string> = {};
+  // name → the exact content this app last wrote (version 2), or only its
+  // hash (version 1 records, from before content was kept).
+  const written: Record<string, string> = {};
+  const hashes: Record<string, string> = {};
   const recorded = await readIfRegular(ownershipFile);
   try {
     const parsed = recorded ? JSON.parse(recorded) : {};
+    Object.entries(parsed?.written || {}).forEach(([name, text]) => {
+      if (typeof text === 'string' && text.length <= 64 * 1024)
+        written[name] = text;
+    });
     Object.entries(parsed?.files || {}).forEach(([name, hash]) => {
       if (typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash))
-        owned[name] = hash;
+        hashes[name] = hash;
     });
   } catch {
     /* An unreadable record owns nothing; existing files stay the user's. */
@@ -126,26 +135,32 @@ export async function applyManagedInput(
     const file = path.join(configDirectory, name);
     // eslint-disable-next-line no-await-in-loop
     const current = await readIfRegular(file);
-    const ours = owned[name] !== undefined;
-    if (current !== null && ours && stillManaged(current, content)) {
-      // Dolphin may rewrite the file on exit; the mapping is still exactly ours.
-      result.files[name] = 'current';
-    } else if (current !== null && (!ours || owned[name] !== sha256(current))) {
+    // Ours if every value we last wrote is unchanged (Dolphin may have added
+    // keys or reformatted); an older hash-only record must match exactly.
+    const ours =
+      current !== null &&
+      (written[name] !== undefined
+        ? stillManaged(current, written[name])
+        : hashes[name] === sha256(current));
+    if (current !== null && !ours) {
       result.files[name] = 'user';
-      delete owned[name];
-    } else if (current === content) {
+      delete written[name];
+      delete hashes[name];
+    } else if (current !== null && stillManaged(current, content)) {
       result.files[name] = 'current';
+      written[name] = content;
     } else {
       const temporary = `${file}.${randomBytes(6).toString('hex')}.tmp`;
       // eslint-disable-next-line no-await-in-loop
       await fs.writeFile(temporary, content, { flag: 'wx', mode: 0o600 });
       // eslint-disable-next-line no-await-in-loop
       await fs.rename(temporary, file);
-      owned[name] = sha256(content);
+      written[name] = content;
       result.files[name] = 'written';
     }
+    delete hashes[name];
   }
-  const record = `${JSON.stringify({ format: 'emulation-workspace-input', version: 1, files: owned })}\n`;
+  const record = `${JSON.stringify({ format: 'emulation-workspace-input', version: 2, written })}\n`;
   const temporary = `${ownershipFile}.${randomBytes(6).toString('hex')}.tmp`;
   await fs.writeFile(temporary, record, { flag: 'wx', mode: 0o600 });
   await fs.rename(temporary, ownershipFile);

@@ -35,8 +35,11 @@ const flush = () =>
 function setup(overrides: Partial<ConsoleDependencies> = {}) {
   const child = new FakeChild();
   let launch: Launch | undefined;
+  let exitHold: (() => void) | undefined;
+  const watch = { stop: jest.fn() };
   const runner = {
     isBusy: false,
+    forceStop: jest.fn(() => true),
     launchAndWait: jest.fn(async () => ({ code: 0, signal: null })),
   };
   const broker = { close: jest.fn(async () => undefined) };
@@ -76,6 +79,10 @@ function setup(overrides: Partial<ConsoleDependencies> = {}) {
     }),
     delay: jest.fn(async () => undefined),
     prepareGameInput: jest.fn(async () => undefined),
+    watchExitHold: jest.fn((onHold: () => void) => {
+      exitHold = onHold;
+      return watch;
+    }),
     hideManager: jest.fn(),
     showManager: jest.fn(),
     ...overrides,
@@ -85,7 +92,16 @@ function setup(overrides: Partial<ConsoleDependencies> = {}) {
     runner as GameRunner,
     deps,
   );
-  return { session, deps, runner, broker, child, launch: () => launch! };
+  return {
+    session,
+    deps,
+    runner,
+    broker,
+    child,
+    watch,
+    hold: () => exitHold!(),
+    launch: () => launch!,
+  };
 }
 
 describe('ConsoleSession', () => {
@@ -191,6 +207,31 @@ describe('ConsoleSession', () => {
       signal: null,
     });
     expect(runner.launchAndWait).toHaveBeenCalled();
+  });
+
+  it('force-stops only a running game on a long exit hold, then stops watching', async () => {
+    let finishGame!: (value: { code: number; signal: null }) => void;
+    const { session, runner, child, watch, hold, launch } = setup();
+    runner.launchAndWait.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishGame = resolve;
+        }),
+    );
+    await session.enter('/lib');
+    hold();
+    // No game running: the hold does nothing (ES-DE has its own Quit).
+    expect(runner.forceStop).not.toHaveBeenCalled();
+    const game = launch()('a'.repeat(32));
+    await flush();
+    hold();
+    expect(runner.forceStop).toHaveBeenCalledTimes(1);
+    finishGame({ code: 0, signal: null });
+    await game;
+    child.exit(0);
+    await flush();
+    expect(session.report?.forcedStops).toBe(1);
+    expect(watch.stop).toHaveBeenCalled();
   });
 
   it('refuses unknown IDs', async () => {

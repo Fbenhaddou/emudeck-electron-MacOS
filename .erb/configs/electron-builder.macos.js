@@ -17,7 +17,7 @@ module.exports = {
   extraResources: [
     // Console Mode's native helpers: the authenticated ES-DE wait client and the
     // single-purpose frontend activation helper (resolved from Resources/helpers).
-    ...['console-launcher', 'activate-app'].map((name) => ({
+    ...['console-launcher', 'activate-app', 'console-guardian'].map((name) => ({
       from: `release/native/${name}`,
       to: `helpers/${name}`,
     })),

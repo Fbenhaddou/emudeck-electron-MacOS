@@ -22,6 +22,7 @@ export interface ConsoleFrontend {
 
 export interface GameRunner {
   readonly isBusy: boolean;
+  forceStop(): boolean;
   launchAndWait(
     library: string,
     game: string,
@@ -62,6 +63,8 @@ export interface ConsoleDependencies {
   hideManager(): void;
   showManager(): void;
   delay(milliseconds: number): Promise<void>;
+  /** Reports a long controller exit hold, even while an emulator is frontmost. */
+  watchExitHold(onHold: () => void): { stop(): void };
   /** Best effort: managed controller input for the game about to start. */
   prepareGameInput(library: string): Promise<void>;
 }
@@ -75,6 +78,8 @@ export interface ConsoleReport {
   focus: FocusOutcome[];
   /** Focus outcome when the frontend first opened. */
   startFocus: FocusOutcome | null;
+  /** Games stopped through the controller escape hatch. */
+  forcedStops: number;
   games: number;
   error: string | null;
 }
@@ -102,6 +107,8 @@ export class ConsoleSession {
   private activeGame: Promise<unknown> | null = null;
 
   private lastReport: ConsoleReport | null = null;
+
+  private exitWatch: { stop(): void } | null = null;
 
   // eslint-disable-next-line no-useless-constructor -- Parameter properties.
   constructor(
@@ -141,6 +148,7 @@ export class ConsoleSession {
       frontendExit: null,
       focus: [],
       startFocus: null,
+      forcedStops: 0,
       games: 0,
       error: null,
     };
@@ -221,6 +229,11 @@ export class ConsoleSession {
         void this.finish(ownedRuntime, ownedBroker, report);
       });
       await started;
+      // Escape hatch: if a game's emulator stops responding, a long hold of the
+      // controller exit combination stops that game and returns to the frontend.
+      this.exitWatch = deps.watchExitHold(() => {
+        if (this.activeGame && this.runner.forceStop()) report.forcedStops += 1;
+      });
       this.current = 'running';
       this.onChange();
       // Hiding the manager hands focus to whatever macOS picks next, not to the
@@ -297,6 +310,8 @@ export class ConsoleSession {
       await broker.close().catch(() => undefined);
       await this.dependencies.removeRuntime(runtime).catch(() => undefined);
     } finally {
+      this.exitWatch?.stop();
+      this.exitWatch = null;
       this.frontendChild = null;
       const exit = report.frontendExit;
       if (exit && (exit.code !== 0 || exit.signal))

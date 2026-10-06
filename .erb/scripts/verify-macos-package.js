@@ -87,6 +87,7 @@ async function run() {
     path.join(contents, 'MacOS', info.CFBundleExecutable),
     path.join(resources, 'helpers', 'console-launcher'),
     path.join(resources, 'helpers', 'activate-app'),
+    path.join(resources, 'helpers', 'console-guardian'),
     path.join(
       contents,
       'Frameworks/Electron Framework.framework/Versions/A/Electron Framework',

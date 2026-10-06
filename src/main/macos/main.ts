@@ -116,6 +116,7 @@ consoleSession = new ConsoleSession(
       secretPath: path.join(consoleRoot, 'game-id.key'),
       launcherHelper: path.join(helpers, 'console-launcher'),
       activateHelper: path.join(helpers, 'activate-app'),
+      guardianHelper: path.join(helpers, 'console-guardian'),
     },
     {
       // Hidden, not closed: the manager stays ready but never competes for focus.
@@ -156,6 +157,7 @@ consoleSession = new ConsoleSession(
         startFocus: report?.startFocus ?? null,
         gameFocus: report?.focus ?? [],
         exit: report?.frontendExit ?? null,
+        forcedStops: report?.forcedStops ?? 0,
         error: report?.error ?? null,
       })}\n`,
     );

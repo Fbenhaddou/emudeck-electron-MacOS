@@ -28,6 +28,7 @@ export interface ConsoleHostPaths {
   /** Signed helper binaries shipped with the app. */
   launcherHelper: string;
   activateHelper: string;
+  guardianHelper: string;
 }
 
 export async function privateDirectory(directory: string): Promise<string> {
@@ -178,6 +179,26 @@ export function consoleDependencies(
         entries,
         family && family !== 'other' ? { controllerType: family } : {},
       );
+    },
+    watchExitHold: (onHold) => {
+      const guardian = spawn(paths.guardianHelper, ['--hold-seconds', '5'], {
+        shell: false,
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      let buffer = '';
+      guardian.stdout?.on('data', (chunk: Buffer) => {
+        buffer = (buffer + chunk.toString('utf8')).slice(-256);
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        lines.forEach((line) => {
+          if (line !== 'exit-hold') return;
+          process.stderr.write(`${JSON.stringify({ event: 'exit-hold' })}\n`);
+          onHold();
+        });
+      });
+      guardian.on('error', () => undefined);
+      // Closing its input ends the helper; it never outlives the session.
+      return { stop: () => guardian.stdin?.end() };
     },
     prepareGameInput: async (library) => {
       const controller = primaryController(await detectControllers());
