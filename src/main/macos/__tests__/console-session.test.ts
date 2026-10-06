@@ -75,6 +75,7 @@ function setup(overrides: Partial<ConsoleDependencies> = {}) {
       return child as unknown as ChildProcess;
     }),
     delay: jest.fn(async () => undefined),
+    prepareGameInput: jest.fn(async () => undefined),
     hideManager: jest.fn(),
     showManager: jest.fn(),
     ...overrides,
@@ -175,6 +176,21 @@ describe('ConsoleSession', () => {
       'console',
     );
     expect(deps.restoreFocus).toHaveBeenCalledWith(4242, '/managed/ES-DE.app');
+    expect(deps.prepareGameInput).toHaveBeenCalledWith('/lib');
+  });
+
+  it('still launches the game if managed input cannot be prepared', async () => {
+    const { session, runner, launch } = setup({
+      prepareGameInput: jest.fn(async () => {
+        throw new Error('config folder unavailable');
+      }),
+    });
+    await session.enter('/lib');
+    await expect(launch()('a'.repeat(32))).resolves.toEqual({
+      code: 0,
+      signal: null,
+    });
+    expect(runner.launchAndWait).toHaveBeenCalled();
   });
 
   it('refuses unknown IDs', async () => {

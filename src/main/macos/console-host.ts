@@ -4,6 +4,9 @@ import fs from 'fs/promises';
 import path from 'path';
 import { randomBytes } from 'crypto';
 import { dolphin } from '../components/dolphin';
+import { applyManagedInput, isInputFamily } from '../components/dolphin/input';
+import { detectControllers, primaryController } from './controllers';
+import { prepareDolphinLibrary } from './dolphin-library';
 import { createCatalog } from '../components/es-de/catalog';
 import { stableGameID } from '../components/es-de/ids';
 import { installedFrontend } from '../components/es-de/install';
@@ -166,8 +169,36 @@ export function consoleDependencies(
     makeRuntime: () => makeRuntime(paths.launcherHelper),
     removeRuntime,
     createCatalog,
-    publishProfile: async (home, catalog, entries) =>
-      publishProfile(await privateDirectory(home), catalog, entries),
+    publishProfile: async (home, catalog, entries) => {
+      // Button glyphs follow the connected controller; unknown families keep ES-DE's default.
+      const family = primaryController(await detectControllers())?.family;
+      return publishProfile(
+        await privateDirectory(home),
+        catalog,
+        entries,
+        family && family !== 'other' ? { controllerType: family } : {},
+      );
+    },
+    prepareGameInput: async (library) => {
+      const controller = primaryController(await detectControllers());
+      const family = controller?.family || 'none';
+      if (!isInputFamily(family)) {
+        process.stderr.write(
+          `${JSON.stringify({ event: 'game-input', family, result: 'unmanaged' })}\n`,
+        );
+        return;
+      }
+      await prepareDolphinLibrary(library);
+      const { configuration, user } = dolphin.paths(library);
+      const result = await applyManagedInput(
+        configuration,
+        path.join(path.dirname(user), '.emulation-workspace-input.json'),
+        family,
+      );
+      process.stderr.write(
+        `${JSON.stringify({ event: 'game-input', family, result: result.files })}\n`,
+      );
+    },
     startBroker: startConsoleBroker,
     restoreFocus: (pid, bundle) =>
       restoreFocus(paths.activateHelper, pid, bundle),

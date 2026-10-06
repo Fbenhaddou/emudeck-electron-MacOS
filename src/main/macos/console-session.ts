@@ -61,6 +61,8 @@ export interface ConsoleDependencies {
   hideManager(): void;
   showManager(): void;
   delay(milliseconds: number): Promise<void>;
+  /** Best effort: managed controller input for the game about to start. */
+  prepareGameInput(library: string): Promise<void>;
 }
 /* eslint-enable no-unused-vars */
 
@@ -253,6 +255,7 @@ export class ConsoleSession {
   ) {
     if (!rom || this.current !== 'running')
       throw failure('Console Mode is not ready');
+    await this.dependencies.prepareGameInput(library).catch(() => undefined);
     const game = this.runner.launchAndWait(library, rom, 'console');
     this.activeGame = game;
     try {
