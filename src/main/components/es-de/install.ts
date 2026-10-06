@@ -187,6 +187,26 @@ export async function installedVersion(root: string): Promise<string | null> {
   }
 }
 
+export type FrontendHealth = 'missing' | 'installed' | 'damaged';
+
+/**
+ * Cheap status check (no signature work): our receipt plus the files a launch
+ * needs. Files deleted or replaced after installation read as damaged.
+ */
+export async function frontendHealth(root: string): Promise<FrontendHealth> {
+  if (!(await installedVersion(root))) return 'missing';
+  const frontend = frontendAt(await ownedRoot(root));
+  const regular = (file: string) =>
+    fs.lstat(file).then(
+      (stat) => stat.isFile() && !stat.isSymbolicLink(),
+      () => false,
+    );
+  const intact =
+    (await regular(path.join(frontend.bundle, 'Contents', 'Info.plist'))) &&
+    (await regular(frontend.executable));
+  return intact ? 'installed' : 'damaged';
+}
+
 /** Returns the verified managed installation, or null if absent or incomplete. */
 export async function installedFrontend(
   root: string,
@@ -250,6 +270,13 @@ export async function installFrontend(
   await recoverStages(root, run);
   const frontend = frontendAt(root);
   const destination = path.dirname(frontend.bundle);
+  // Repair: a copy our own receipt identifies, but which no longer verifies, is
+  // moved aside and replaced. Folders without our receipt are still preserved.
+  let damaged: string | null = null;
+  if (await installedVersion(root)) {
+    damaged = path.join(root, `.esde-damaged-${Date.now()}`);
+    await fs.rename(destination, damaged);
+  }
   // Never replace an unknown or partial directory; it is preserved for review.
   if (
     await fs.lstat(destination).then(
@@ -332,6 +359,11 @@ export async function installFrontend(
     if (!installed)
       await fs
         .rm(destination, { recursive: true, force: true })
+        .catch(() => undefined);
+    // The damaged copy is this app's own unusable bundle, never user data.
+    if (damaged)
+      await fs
+        .rm(damaged, { recursive: true, force: true })
         .catch(() => undefined);
   }
 }

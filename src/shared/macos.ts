@@ -11,6 +11,8 @@ export interface DolphinStatus {
 export interface ConsoleStatus {
   /** Installed managed ES-DE version, or null. */
   frontend: string | null;
+  /** Damaged: our receipt exists but files a launch needs are missing or changed. */
+  frontendState: 'missing' | 'installed' | 'damaged';
   state: 'idle' | 'installing' | 'starting' | 'running' | 'stopping';
   /** Plain-language problem from the last session, if any. */
   lastError: string | null;

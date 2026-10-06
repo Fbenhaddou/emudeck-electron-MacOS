@@ -398,12 +398,14 @@ export default function MacApp() {
     consoleRequirement = 'Choose an available library in Library first.';
   else if (!status?.dolphin.version)
     consoleRequirement = 'Install Dolphin in Emulators first.';
-  else if (!status?.console.frontend)
+  else if (status?.console.frontendState === 'damaged')
+    consoleRequirement = 'Repair ES-DE above first.';
+  else if (status?.console.frontendState !== 'installed')
     consoleRequirement = 'Install ES-DE above first.';
   const consoleReady = Boolean(
     status?.library?.available &&
     status?.dolphin.version &&
-    status?.console.frontend,
+    status?.console.frontendState === 'installed',
   );
   const operationMessages: Record<
     Exclude<MacStatus['dolphin']['operation'], 'idle'>,
@@ -796,12 +798,15 @@ export default function MacApp() {
                         <div className="row-text">
                           <h3>ES-DE</h3>
                           <p>
-                            {status.console.frontend
-                              ? `Frontend · Version ${status.console.frontend}`
-                              : 'Frontend · Official release for Apple Silicon'}
+                            {status.console.frontendState === 'damaged' &&
+                              'Needs repair · Some application files are missing or changed'}
+                            {status.console.frontendState === 'installed' &&
+                              `Frontend · Version ${status.console.frontend}`}
+                            {status.console.frontendState === 'missing' &&
+                              'Frontend · Official release for Apple Silicon'}
                           </p>
                         </div>
-                        {!status.console.frontend && (
+                        {status.console.frontendState !== 'installed' && (
                           <button
                             type="button"
                             className="primary"
@@ -812,7 +817,9 @@ export default function MacApp() {
                               );
                             }}
                           >
-                            Install ES-DE…
+                            {status.console.frontendState === 'damaged'
+                              ? 'Repair ES-DE…'
+                              : 'Install ES-DE…'}
                           </button>
                         )}
                       </div>

@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import {
   ESDE_RELEASE,
+  frontendHealth,
   installFrontend,
   installedFrontend,
   readLicense,
@@ -179,6 +180,48 @@ describe('managed ES-DE installation', () => {
     });
     await expect(fs.lstat(ours)).rejects.toMatchObject({ code: 'ENOENT' });
     await expect(fs.lstat(unknown)).resolves.toBeTruthy();
+  });
+
+  it('repairs a managed copy whose files were removed, asking for the license again', async () => {
+    await installFrontend(root, {
+      acceptLicense: async () => true,
+      run,
+      download,
+    });
+    // The mocked bundle has no Info.plist; give it one so health reads installed first.
+    const bundle = path.join(root, '3.5.0', 'ES-DE.app', 'Contents');
+    await fs.writeFile(path.join(bundle, 'Info.plist'), 'plist');
+    await fs.writeFile(path.join(bundle, 'MacOS', 'ES-DE'), 'binary');
+    await expect(frontendHealth(root)).resolves.toBe('installed');
+    await fs.rm(path.join(bundle, 'Info.plist'));
+    await expect(frontendHealth(root)).resolves.toBe('damaged');
+    const original = run;
+    let verifyFails = true;
+    run = jest.fn(async (binary, args, input) => {
+      // The damaged copy fails publisher verification; the fresh copy passes.
+      if (
+        binary.endsWith('codesign') &&
+        verifyFails &&
+        String(args[args.length - 1]).includes('/3.5.0/')
+      ) {
+        verifyFails = false;
+        throw new Error('invalid Info.plist');
+      }
+      return original(binary, args, input);
+    });
+    const acceptLicense = jest.fn(async () => true);
+    await installFrontend(root, { acceptLicense, run, download });
+    expect(acceptLicense).toHaveBeenCalledTimes(1);
+    expect(download).toHaveBeenCalledTimes(2);
+    expect(
+      (await fs.readdir(root)).filter((name) =>
+        name.startsWith('.esde-damaged'),
+      ),
+    ).toEqual([]);
+  });
+
+  it('reports a missing installation as missing', async () => {
+    await expect(frontendHealth(root)).resolves.toBe('missing');
   });
 
   it('reuses a verified installation without downloading again', async () => {

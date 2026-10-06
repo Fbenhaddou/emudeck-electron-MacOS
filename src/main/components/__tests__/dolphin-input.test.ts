@@ -48,21 +48,39 @@ describe('managed Dolphin input', () => {
     );
   });
 
-  it('hands a managed file to the user once they edit it', async () => {
+  it('keeps additions but hands the file over once a managed value changes', async () => {
     await applyManagedInput(config, ownership, 'ps5');
-    await fs.appendFile(
-      path.join(config, 'Hotkeys.ini'),
-      'General/Screenshot = `Button N`\n',
-    );
-    const result = await applyManagedInput(config, ownership, 'ps5');
-    expect(result.files['Hotkeys.ini']).toBe('user');
+    const file = path.join(config, 'Hotkeys.ini');
+    await fs.appendFile(file, 'General/Screenshot = `Button N`\n');
+    // An added setting leaves our values intact: still managed, addition kept.
     expect(
-      await fs.readFile(path.join(config, 'Hotkeys.ini'), 'utf8'),
-    ).toContain('Screenshot');
-    // Still the user's on later runs, even though the record dropped it.
+      (await applyManagedInput(config, ownership, 'ps5')).files['Hotkeys.ini'],
+    ).toBe('current');
+    expect(await fs.readFile(file, 'utf8')).toContain('Screenshot');
+    // Changing the exit combination makes the file the user's, permanently.
+    const edited = (await fs.readFile(file, 'utf8')).replace('1.5)', '3)');
+    await fs.writeFile(file, edited);
     expect(
       (await applyManagedInput(config, ownership, 'ps5')).files['Hotkeys.ini'],
     ).toBe('user');
+    expect(
+      (await applyManagedInput(config, ownership, 'ps5')).files['Hotkeys.ini'],
+    ).toBe('user');
+    expect(await fs.readFile(file, 'utf8')).toContain(', 3)');
+  });
+
+  it('still owns a file Dolphin rewrote with extra keys and spacing', async () => {
+    await applyManagedInput(config, ownership, 'ps5');
+    const file = path.join(config, 'GCPadNew.ini');
+    const rewritten = (await fs.readFile(file, 'utf8')).replace(
+      'Rumble/Motor = `Motor`',
+      'Rumble/Motor = `Motor`\nMain Stick/Calibration = 100.00 100.00\n',
+    );
+    await fs.writeFile(file, `${rewritten}\n`);
+    expect(
+      (await applyManagedInput(config, ownership, 'ps5')).files['GCPadNew.ini'],
+    ).toBe('current');
+    expect(await fs.readFile(file, 'utf8')).toContain('Calibration');
   });
 
   it('treats a corrupt ownership record as owning nothing', async () => {

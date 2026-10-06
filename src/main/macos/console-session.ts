@@ -1,3 +1,4 @@
+/* eslint max-classes-per-file: ["error", 2] -- A tiny user-facing error marker lives with its only user. */
 import path from 'path';
 import type { ChildProcess, SpawnOptions } from 'child_process';
 import type { Catalog, CatalogEntry } from '../components/es-de/catalog';
@@ -78,7 +79,13 @@ export interface ConsoleReport {
   error: string | null;
 }
 
-const failure = (message: string) => Object.assign(new Error(message));
+/** Errors whose message was written for people; anything else is never shown raw. */
+export class ConsoleError extends Error {}
+const failure = (message: string) => new ConsoleError(message);
+const REPAIR =
+  'ES-DE needs to be repaired: some of its files are missing or were changed. Choose Repair ES-DE. Your games and saves are unchanged.';
+const GENERIC =
+  'Console Mode could not start. Check that your library drive is connected. Your games and saves are unchanged.';
 
 /**
  * Console Mode lifecycle: idle → starting → running → stopping → idle.
@@ -138,7 +145,10 @@ export class ConsoleSession {
       error: null,
     };
     try {
-      const frontend = await deps.frontend();
+      const frontend = await deps.frontend().catch(() => {
+        // A receipt exists but the bundle no longer verifies.
+        throw failure(REPAIR);
+      });
       if (!frontend) throw failure('Install ES-DE before opening Console Mode');
       // A frontend relaunched by macOS after a crash runs without isolation.
       (await deps.strayFrontends(frontend.executable)).forEach((pid) =>
@@ -220,8 +230,7 @@ export class ConsoleSession {
       this.lastReport = report;
       this.onChange();
     } catch (error) {
-      report.error =
-        error instanceof Error ? error.message : 'Console Mode could not start';
+      report.error = error instanceof ConsoleError ? error.message : GENERIC;
       this.frontendChild = null;
       await broker?.close().catch(() => undefined);
       if (runtime) await deps.removeRuntime(runtime).catch(() => undefined);

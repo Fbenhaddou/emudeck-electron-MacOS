@@ -23,7 +23,11 @@ import { setWindowZoom, stepZoom } from './chrome';
 import { consoleDependencies, privateDirectory } from './console-host';
 import { ConsoleSession } from './console-session';
 import { activateUntilHeld, restoreFocus } from './focus';
-import { installFrontend, installedVersion } from '../components/es-de/install';
+import {
+  ESDE_RELEASE,
+  frontendHealth,
+  installFrontend,
+} from '../components/es-de/install';
 import { ComponentManager } from './component-manager';
 import { symbolCSS } from './symbols';
 import { prepareDolphinLibrary } from './dolphin-library';
@@ -189,18 +193,19 @@ async function getStatus(): Promise<MacStatus> {
     libraryError =
       'Library settings could not be read. Existing files have been preserved.';
   }
-  let frontend: string | null = null;
+  let frontendState: 'missing' | 'installed' | 'damaged' = 'missing';
   try {
     // Status is read-only: never create folders; absent means not installed.
-    frontend = await installedVersion(await fs.realpath(frontendRoot));
+    frontendState = await frontendHealth(await fs.realpath(frontendRoot));
   } catch {
-    frontend = null;
+    frontendState = 'missing';
   }
   const { report } = consoleSession;
   return {
     dolphin: await manager.status(),
     console: {
-      frontend,
+      frontend: frontendState === 'missing' ? null : ESDE_RELEASE.version,
+      frontendState,
       state: installingConsole ? 'installing' : consoleSession.state,
       lastError: report?.error || null,
       games: report ? report.games : null,
@@ -403,9 +408,12 @@ ipcMain.handle(
       const message = error instanceof Error ? error.message : '';
       return {
         ok: false,
-        error: message.startsWith('Install ES-DE')
-          ? 'Install ES-DE before opening Console Mode.'
-          : 'Console Mode could not start. Check that your library drive is connected. Your games and saves are unchanged.',
+        // The session's report carries the plain-language reason for the page.
+        error:
+          consoleSession.report?.error ||
+          (message.startsWith('Install ES-DE')
+            ? 'Install ES-DE before opening Console Mode.'
+            : 'Console Mode could not start. Check that your library drive is connected. Your games and saves are unchanged.'),
       };
     }
   },

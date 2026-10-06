@@ -556,6 +556,16 @@ export default class SmokeHarness {
       mode: 0o700,
     });
     await fs.chmod(syntheticFrontend, 0o700);
+    // Placeholder files satisfy the cheap health check; nothing is executed.
+    const syntheticContents = path.join(
+      syntheticFrontend,
+      '3.5.0',
+      'ES-DE.app',
+      'Contents',
+    );
+    await fs.mkdir(path.join(syntheticContents, 'MacOS'), { recursive: true });
+    await fs.writeFile(path.join(syntheticContents, 'Info.plist'), '');
+    await fs.writeFile(path.join(syntheticContents, 'MacOS', 'ES-DE'), '');
     await fs.writeFile(
       path.join(syntheticFrontend, '3.5.0', 'receipt.json'),
       JSON.stringify({

@@ -11,7 +11,13 @@ import MacApp from '../MacApp';
 import type { MacStatus } from '../../../shared/macos';
 
 const status: MacStatus = {
-  console: { frontend: null, state: 'idle', lastError: null, games: null },
+  console: {
+    frontend: null,
+    frontendState: 'missing',
+    state: 'idle',
+    lastError: null,
+    games: null,
+  },
   dolphin: { version: null, operation: 'idle' },
   appVersion: 'test',
   platform: 'darwin',
@@ -263,7 +269,13 @@ describe('Console Mode page', () => {
     ...status,
     library: { path: '/Volumes/Games', available: true },
     dolphin: { version: '2609', operation: 'idle' },
-    console: { frontend: '3.5.0', state: 'idle', lastError: null, games: null },
+    console: {
+      frontend: '3.5.0',
+      frontendState: 'installed',
+      state: 'idle',
+      lastError: null,
+      games: null,
+    },
   };
   async function open(current: MacStatus) {
     (window.mac.getStatus as jest.Mock).mockResolvedValue(current);
@@ -281,8 +293,15 @@ describe('Console Mode page', () => {
       'Install Dolphin in Emulators first.',
     ],
     [
-      { ...ready, console: { ...ready.console, frontend: null } },
+      {
+        ...ready,
+        console: { ...ready.console, frontend: null, frontendState: 'missing' },
+      },
       'Install ES-DE above first.',
+    ],
+    [
+      { ...ready, console: { ...ready.console, frontendState: 'damaged' } },
+      'Repair ES-DE above first.',
     ],
   ])(
     'explains what is missing and keeps Open disabled %#',
@@ -293,8 +312,23 @@ describe('Console Mode page', () => {
     },
   );
 
+  it('offers repair for a damaged installation through the same bridge', async () => {
+    await open({
+      ...ready,
+      console: { ...ready.console, frontendState: 'damaged' },
+    });
+    expect(screen.getByText(/Needs repair/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Repair ES-DE…' }));
+    await waitFor(() =>
+      expect(window.mac.installConsole).toHaveBeenCalledWith(),
+    );
+  });
+
   it('installs ES-DE through the zero-argument bridge', async () => {
-    await open({ ...ready, console: { ...ready.console, frontend: null } });
+    await open({
+      ...ready,
+      console: { ...ready.console, frontend: null, frontendState: 'missing' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Install ES-DE…' }));
     await waitFor(() =>
       expect(window.mac.installConsole).toHaveBeenCalledWith(),

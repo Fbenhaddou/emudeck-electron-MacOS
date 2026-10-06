@@ -65,6 +65,27 @@ export function isInputFamily(family: string): family is InputFamily {
 const sha256 = (text: string) =>
   createHash('sha256').update(text).digest('hex');
 
+/** Section/key → value; Dolphin rewrites these files with extra keys and spacing. */
+function iniValues(text: string): Map<string, string> {
+  const values = new Map<string, string>();
+  let section = '';
+  text.split(/\r?\n/).forEach((line) => {
+    const header = /^\s*\[([^\]]+)\]\s*$/.exec(line);
+    if (header) [, section] = header;
+    const pair = /^\s*([^=]+?)\s*=\s*(.*?)\s*$/.exec(line);
+    if (pair && !header) values.set(`${section}/${pair[1]}`, pair[2]);
+  });
+  return values;
+}
+
+/** Every value this app manages still has exactly the value it wrote. */
+function stillManaged(current: string, desired: string): boolean {
+  const actual = iniValues(current);
+  return [...iniValues(desired)].every(
+    ([key, value]) => actual.get(key) === value,
+  );
+}
+
 async function readIfRegular(file: string): Promise<string | null> {
   try {
     const stat = await fs.lstat(file);
@@ -105,7 +126,11 @@ export async function applyManagedInput(
     const file = path.join(configDirectory, name);
     // eslint-disable-next-line no-await-in-loop
     const current = await readIfRegular(file);
-    if (current !== null && owned[name] !== sha256(current)) {
+    const ours = owned[name] !== undefined;
+    if (current !== null && ours && stillManaged(current, content)) {
+      // Dolphin may rewrite the file on exit; the mapping is still exactly ours.
+      result.files[name] = 'current';
+    } else if (current !== null && (!ours || owned[name] !== sha256(current))) {
       result.files[name] = 'user';
       delete owned[name];
     } else if (current === content) {
