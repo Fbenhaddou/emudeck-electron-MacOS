@@ -1,4 +1,5 @@
 /* eslint-disable no-bitwise -- CRC32 is bitwise by definition. */
+/* eslint import/prefer-default-export: "off" -- Named class export, like other shared modules. */
 const table = (() => {
   const values = new Uint32Array(256);
   for (let index = 0; index < 256; index += 1) {

@@ -191,11 +191,9 @@ export async function importFirmware(
     // eslint-disable-next-line no-await-in-loop
     const existing = await fs.lstat(target).catch(() => null);
     if (existing) {
-      // eslint-disable-next-line no-await-in-loop
-      const same =
-        existing.isFile() &&
-        !existing.isSymbolicLink() &&
-        (await crc32Of(target)) === dump.crc32;
+      const regular = existing.isFile() && !existing.isSymbolicLink();
+      // eslint-disable-next-line no-await-in-loop -- Sequential, bounded copies.
+      const same = regular && (await crc32Of(target)) === dump.crc32;
       if (same) continue; // eslint-disable-line no-continue
       const backup = `${target}.before-${stamp}`;
       // eslint-disable-next-line no-await-in-loop
