@@ -140,11 +140,27 @@ export class EmulatorRuntime {
     return canonical;
   }
 
+  /** Windowed play: resolves once the emulator has started. */
+  async launch(library: string, game: string): Promise<void> {
+    const { finished } = await this.start(library, game, 'window');
+    finished.catch(() => undefined);
+  }
+
+  /** Console Mode: resolves when this exact emulator process exits. */
   async launchAndWait(
     library: string,
     game: string,
     presentation: 'window' | 'console' = 'window',
   ): Promise<EmulatorExit> {
+    const { finished } = await this.start(library, game, presentation);
+    return finished;
+  }
+
+  private async start(
+    library: string,
+    game: string,
+    presentation: 'window' | 'console',
+  ): Promise<{ finished: Promise<EmulatorExit> }> {
     this.begin('launching');
     try {
       const app = await this.app.installed(await this.root());
@@ -190,7 +206,7 @@ export class EmulatorRuntime {
         });
         child.once('error', reject);
       });
-      return await finished;
+      return { finished };
     } catch (error) {
       this.child = null;
       this.operation = 'idle';

@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { MacAPI } from '../../shared/macos';
+import type { MacAPI, PinnedEmulatorID } from '../../shared/macos';
 
 const api: MacAPI = Object.freeze({
   installDolphin: () => ipcRenderer.invoke('mac:install-dolphin'),
@@ -15,6 +15,11 @@ const api: MacAPI = Object.freeze({
     ipcRenderer.invoke('mac:set-stick-response', value),
   useRecommendedControls: () =>
     ipcRenderer.invoke('mac:use-recommended-controls'),
+  // Single forwarded emulator id; main accepts only fixed literals.
+  installEmulator: (id: PinnedEmulatorID) =>
+    ipcRenderer.invoke('mac:install-emulator', id),
+  playEmulator: (id: PinnedEmulatorID) =>
+    ipcRenderer.invoke('mac:play-emulator', id),
   getStatus: () => ipcRenderer.invoke('mac:status'),
   onRefreshStatus: (callback: () => void) => {
     if (typeof callback !== 'function')

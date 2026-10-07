@@ -19,6 +19,16 @@ const status: MacStatus = {
     games: null,
   },
   dolphin: { version: null, operation: 'idle' },
+  emulators: [
+    {
+      id: 'ppsspp',
+      name: 'PPSSPP',
+      systems: ['psp'],
+      version: null,
+      health: 'missing',
+      operation: 'idle',
+    },
+  ],
   appVersion: 'test',
   platform: 'darwin',
   architecture: 'arm64',
@@ -61,6 +71,8 @@ beforeEach(() => {
     getControllers: jest.fn(async () => controllersStatus),
     setStickResponse: jest.fn(async () => ({ ok: true as const })),
     useRecommendedControls: jest.fn(async () => ({ ok: true as const })),
+    installEmulator: jest.fn(async () => ({ ok: true as const })),
+    playEmulator: jest.fn(async () => ({ ok: true as const })),
     recoverLibrarySettings: jest.fn().mockResolvedValue({ ok: true }),
     getStatus: jest.fn().mockResolvedValue(status),
     onRefreshStatus: jest.fn((callback: () => void) => {
@@ -437,5 +449,50 @@ describe('Controllers page', () => {
     expect(
       screen.queryByRole('button', { name: 'Use Recommended Controls…' }),
     ).toBeNull();
+  });
+});
+
+describe('PPSSPP on the Emulators page', () => {
+  const library = { path: '/Volumes/Games', available: true };
+  async function open(current: MacStatus) {
+    (window.mac.getStatus as jest.Mock).mockResolvedValue(current);
+    render(<MacApp />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Emulators' }));
+    await screen.findByText('PPSSPP');
+  }
+
+  it('installs PPSSPP by its fixed id', async () => {
+    await open({ ...status, library });
+    fireEvent.click(screen.getByRole('button', { name: 'Install PPSSPP' }));
+    await waitFor(() =>
+      expect(window.mac.installEmulator).toHaveBeenCalledWith('ppsspp'),
+    );
+  });
+
+  it('plays a PSP game once installed and offers repair when damaged', async () => {
+    await open({
+      ...status,
+      library,
+      emulators: [
+        { ...status.emulators[0], version: '1.20.4', health: 'installed' },
+      ],
+    });
+    expect(screen.getByText('PSP · Version 1.20.4')).toBeInTheDocument();
+    const play = screen.getAllByRole('button', { name: 'Choose Game…' });
+    fireEvent.click(play[play.length - 1]);
+    await waitFor(() =>
+      expect(window.mac.playEmulator).toHaveBeenCalledWith('ppsspp'),
+    );
+  });
+
+  it('shows repair for a damaged installation', async () => {
+    await open({
+      ...status,
+      library,
+      emulators: [
+        { ...status.emulators[0], version: '1.20.4', health: 'damaged' },
+      ],
+    });
+    expect(screen.getByRole('button', { name: 'Repair PPSSPP' })).toBeEnabled();
   });
 });

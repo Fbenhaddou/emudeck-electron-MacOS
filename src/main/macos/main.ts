@@ -23,6 +23,9 @@ import type {
 import { setWindowZoom, stepZoom } from './chrome';
 import { consoleDependencies, privateDirectory } from './console-host';
 import { ConsoleSession } from './console-session';
+import { EmulatorRuntime, defaultSpawn } from './emulator-runtime';
+import { ppsspp, ppssppApp } from '../components/ppsspp';
+import { ppssppPreflight } from '../components/ppsspp/preflight';
 import { activateUntilHeld, restoreFocus } from './focus';
 import {
   ESDE_RELEASE,
@@ -122,6 +125,28 @@ const helpers = app.isPackaged
   ? path.join(process.resourcesPath, 'helpers')
   : path.resolve(app.getAppPath(), '..', 'native');
 let installingConsole = false;
+const ppssppRuntime = new EmulatorRuntime(
+  ppsspp,
+  ppssppApp,
+  path.join(app.getPath('userData'), 'components', 'ppsspp'),
+  {
+    spawn: defaultSpawn,
+    preflight: ppssppPreflight(),
+    assertLibrary: async (root) => {
+      if ((await availableLibrary()) !== root)
+        throw new Error('Library changed or its drive is unavailable');
+    },
+  },
+  () => {
+    if (consoleSession?.isActive) return;
+    mainWindow?.show();
+    mainWindow?.focus();
+  },
+);
+const pinnedEmulators = { ppsspp: ppssppRuntime } as const;
+const pinnedEmulatorIDs = Object.keys(pinnedEmulators) as Array<
+  keyof typeof pinnedEmulators
+>;
 consoleSession = new ConsoleSession(
   path.join(consoleRoot, 'esde-home'),
   manager,
@@ -186,6 +211,7 @@ function operationBusy(): boolean {
   return (
     choosingLibrary ||
     manager.isBusy ||
+    ppssppRuntime.isBusy ||
     consoleSession.isActive ||
     installingConsole
   );
@@ -241,6 +267,9 @@ async function getStatus(): Promise<MacStatus> {
   const { report } = consoleSession;
   return {
     dolphin: await manager.status(),
+    emulators: (await Promise.all(
+      pinnedEmulatorIDs.map((id) => pinnedEmulators[id].status()),
+    )) as MacStatus['emulators'],
     console: {
       frontend: frontendState === 'missing' ? null : ESDE_RELEASE.version,
       frontendState,
@@ -545,6 +574,83 @@ ipcMain.handle(
         ok: false,
         error:
           'The controls could not be changed. Your existing controller settings are unchanged.',
+      };
+    } finally {
+      choosingLibrary = false;
+    }
+  },
+);
+ipcMain.handle(
+  'mac:install-emulator',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args, (values) =>
+      acceptsOneOf(values, pinnedEmulatorIDs),
+    );
+    const runtime = pinnedEmulators[args[0] as keyof typeof pinnedEmulators];
+    if (operationBusy())
+      return {
+        ok: false,
+        error: 'Finish the current operation or quit the game first.',
+      };
+    try {
+      await availableLibrary();
+      await runtime.install();
+      await runtime.prepareLibrary(await availableLibrary());
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        error: `${runtime.adapter.manifest.name} could not be installed. Check your connection and library drive. Only the reviewed official release, verified by its publisher signature and macOS, is installed; games and saves are preserved.`,
+      };
+    }
+  },
+);
+ipcMain.handle(
+  'mac:play-emulator',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args, (values) =>
+      acceptsOneOf(values, pinnedEmulatorIDs),
+    );
+    const runtime = pinnedEmulators[args[0] as keyof typeof pinnedEmulators];
+    if (operationBusy())
+      return {
+        ok: false,
+        error: 'Finish the current operation or quit the game first.',
+      };
+    choosingLibrary = true;
+    try {
+      const library = await availableLibrary();
+      await runtime.prepareLibrary(library);
+      const { manifest } = runtime.adapter;
+      const choice = await dialog.showOpenDialog(mainWindow!, {
+        title: `Choose a ${manifest.systems.join(', ').toUpperCase()} Game`,
+        buttonLabel: 'Play',
+        defaultPath: runtime.adapter.paths(library).roms,
+        properties: ['openFile'],
+        filters: [
+          {
+            name: `${manifest.name} games and homebrew`,
+            extensions: manifest.romExtensions.map((extension) =>
+              extension.slice(1),
+            ),
+          },
+        ],
+      });
+      if (choice.canceled) return { ok: true };
+      if (
+        choice.filePaths.length !== 1 ||
+        (await availableLibrary()) !== library
+      )
+        throw new Error('Library changed');
+      await runtime.launch(library, choice.filePaths[0]);
+      return { ok: true };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      return {
+        ok: false,
+        error: message.startsWith('Your own PPSSPP')
+          ? message
+          : `The game could not start. Choose a supported file inside this library’s roms/${runtime.adapter.manifest.systems[0]} folder, check the drive is connected, and verify ${runtime.adapter.manifest.name} is installed.`,
       };
     } finally {
       choosingLibrary = false;

@@ -19,8 +19,21 @@ export interface ConsoleStatus {
   games: number | null;
 }
 
+export type PinnedEmulatorID = 'ppsspp';
+
+export interface EmulatorSummary {
+  id: PinnedEmulatorID;
+  name: string;
+  systems: readonly string[];
+  version: string | null;
+  health: 'missing' | 'installed' | 'damaged';
+  operation: 'idle' | 'installing' | 'launching' | 'running';
+}
+
 export interface MacStatus {
   dolphin: DolphinStatus;
+  /** Pinned-release emulators beyond Dolphin (PPSSPP first). */
+  emulators: EmulatorSummary[];
   console: ConsoleStatus;
   appVersion: string;
   platform: 'darwin';
@@ -80,4 +93,6 @@ export interface MacAPI {
   getControllers(): Promise<ControllersStatus>;
   setStickResponse(value: 'standard' | 'precise'): Promise<ActionResult>;
   useRecommendedControls(): Promise<ActionResult>;
+  installEmulator(id: PinnedEmulatorID): Promise<ActionResult>;
+  playEmulator(id: PinnedEmulatorID): Promise<ActionResult>;
 }

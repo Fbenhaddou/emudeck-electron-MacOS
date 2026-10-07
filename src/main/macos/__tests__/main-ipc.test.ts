@@ -25,6 +25,8 @@ const channels = [
   'mac:controllers',
   'mac:set-stick-response',
   'mac:use-recommended-controls',
+  'mac:install-emulator',
+  'mac:play-emulator',
 ];
 
 function createFixture() {
@@ -281,6 +283,25 @@ describe('actual macOS main IPC and quit boundaries', () => {
     ).rejects.toThrow('not permitted');
     fixture.assertNoNativeWrites();
   });
+
+  it.each([
+    ['mac:install-emulator', ['dolphin']],
+    ['mac:install-emulator', ['PPSSPP']],
+    ['mac:play-emulator', ['ppsspp', '/tmp/game.iso']],
+    ['mac:play-emulator', ['__proto__']],
+  ])(
+    'accepts only a known emulator id literal: %s %p',
+    async (channel, args) => {
+      await expect(
+        fixture.invoke(
+          channel as string,
+          fixture.caller(),
+          ...(args as unknown[]),
+        ),
+      ).rejects.toThrow('not permitted');
+      fixture.assertNoProtectedWork();
+    },
+  );
 
   it.each(channels)(
     'rejects a foreign WebContents before performing work: %s',

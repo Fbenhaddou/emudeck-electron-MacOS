@@ -23,7 +23,7 @@ describe('actual frozen macOS preload bridge', () => {
     });
   });
 
-  it('exposes only thirteen fixed methods and no generic IPC primitive', () => {
+  it('exposes only fifteen fixed methods and no generic IPC primitive', () => {
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     expect(exposeInMainWorld).toHaveBeenCalledWith('mac', api);
     expect(Object.isFrozen(api)).toBe(true);
@@ -34,7 +34,9 @@ describe('actual frozen macOS preload bridge', () => {
       'getStatus',
       'installConsole',
       'installDolphin',
+      'installEmulator',
       'onRefreshStatus',
+      'playEmulator',
       'playGame',
       'recoverLibrarySettings',
       'resetDolphin',
@@ -63,6 +65,18 @@ describe('actual frozen macOS preload bridge', () => {
     await call({ command: 'untrusted', path: '/other' }, 'other-channel');
     expect(ipc.invoke).toHaveBeenCalledTimes(1);
     expect(ipc.invoke).toHaveBeenCalledWith(channel);
+  });
+
+  it.each([
+    ['installEmulator', 'mac:install-emulator'],
+    ['playEmulator', 'mac:play-emulator'],
+  ])('forwards exactly one emulator id from %s', async (method, channel) => {
+    const call = api[method as 'installEmulator'] as unknown as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    await call('ppsspp', '/Applications/Other.app', 'extra');
+    expect(ipc.invoke).toHaveBeenCalledTimes(1);
+    expect(ipc.invoke).toHaveBeenCalledWith(channel, 'ppsspp');
   });
 
   it('forwards exactly one value for stick response on its fixed channel', async () => {

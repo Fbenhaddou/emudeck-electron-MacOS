@@ -391,11 +391,15 @@ export default function MacApp() {
   }, [visibleError, visibleLibraryError]);
   const busy = action !== null;
   const dolphinOperation = status?.dolphin.operation || 'idle';
+  const pinnedBusy = Boolean(
+    status?.emulators?.some((item) => item.operation !== 'idle'),
+  );
   useEffect(() => {
     if (
       !busy &&
       dolphinOperation === 'idle' &&
-      (status?.console.state || 'idle') === 'idle'
+      (status?.console.state || 'idle') === 'idle' &&
+      !pinnedBusy
     )
       return undefined;
     let cancelled = false;
@@ -409,7 +413,7 @@ export default function MacApp() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [busy, dolphinOperation, status?.console.state, refresh]);
+  }, [busy, dolphinOperation, pinnedBusy, status?.console.state, refresh]);
   const refreshAfterAction = async () => {
     // A poll started before a mutation may contain the previous library/version.
     if (statusRequest.current) await statusRequest.current;
@@ -491,7 +495,9 @@ export default function MacApp() {
       ?.focus();
   };
   const emulatorBusy =
-    busy || Boolean(status && status.dolphin.operation !== 'idle');
+    busy ||
+    Boolean(status && status.dolphin.operation !== 'idle') ||
+    Boolean(status?.emulators.some((item) => item.operation !== 'idle'));
   const choosingLibrary = action === 'choosing-library';
   const chooseLabel = choosingLibrary ? 'Choosing…' : 'Choose Folder…';
   const consoleState = status?.console.state || 'idle';
@@ -781,8 +787,8 @@ export default function MacApp() {
                 {page === 'Emulators' && (
                   <>
                     <Hero page="Emulators" tint="indigo" title="Emulators">
-                      Dolphin brings GameCube games and homebrew to your Mac.
-                      Add your own legally obtained games.
+                      Dolphin and PPSSPP bring GameCube and PSP games and
+                      homebrew to your Mac. Add your own legally obtained games.
                     </Hero>
                     <section
                       className="group"
@@ -858,6 +864,93 @@ export default function MacApp() {
                       Downloads come from Dolphin’s official release server.
                       macOS verifies the application before it is installed.
                     </p>
+                    {status.emulators.map((emulator) => {
+                      const busyHere = emulator.operation !== 'idle';
+                      const system = emulator.systems[0];
+                      const messages: Record<string, string> = {
+                        installing: `Installing ${emulator.name}… Downloading and verifying the application.`,
+                        launching: `Starting your game… macOS is verifying ${emulator.name}.`,
+                        running: `${emulator.name} is running. Quit the game to return here.`,
+                      };
+                      return (
+                        <section
+                          key={emulator.id}
+                          className="group"
+                          aria-label={`${emulator.name} management`}
+                          aria-busy={
+                            emulator.operation === 'installing' ||
+                            emulator.operation === 'launching'
+                          }
+                        >
+                          <div className="row">
+                            <div className="row-text">
+                              <h3>{emulator.name}</h3>
+                              <p>
+                                {emulator.health === 'installed' &&
+                                  `${system.toUpperCase()} · Version ${emulator.version}`}
+                                {emulator.health === 'damaged' &&
+                                  'Needs repair · Some application files are missing or changed'}
+                                {emulator.health === 'missing' &&
+                                  `${system.toUpperCase()} · Official Universal build · Native Apple Silicon`}
+                              </p>
+                            </div>
+                            {emulator.health !== 'installed' && (
+                              <button
+                                type="button"
+                                className="primary"
+                                disabled={
+                                  emulatorBusy ||
+                                  busyHere ||
+                                  !status.library?.available
+                                }
+                                onClick={() => {
+                                  void operate('installing', () =>
+                                    window.mac.installEmulator(emulator.id),
+                                  );
+                                }}
+                              >
+                                {emulator.health === 'damaged'
+                                  ? `Repair ${emulator.name}`
+                                  : `Install ${emulator.name}`}
+                              </button>
+                            )}
+                          </div>
+                          {busyHere && (
+                            <div className="row progress" role="status">
+                              {emulator.operation !== 'running' && <Spinner />}
+                              <p>{messages[emulator.operation]}</p>
+                            </div>
+                          )}
+                          {emulator.health === 'installed' && (
+                            <div className="row">
+                              <div className="row-text">
+                                <h3>Play a game</h3>
+                                <p>
+                                  Add {system.toUpperCase()} games to your
+                                  library’s roms/{system} folder.
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                className="primary"
+                                disabled={
+                                  emulatorBusy ||
+                                  busyHere ||
+                                  !status.library?.available
+                                }
+                                onClick={() => {
+                                  void operate('choosing-game', () =>
+                                    window.mac.playEmulator(emulator.id),
+                                  );
+                                }}
+                              >
+                                Choose Game…
+                              </button>
+                            </div>
+                          )}
+                        </section>
+                      );
+                    })}
                     {status.dolphin.version && (
                       <details className="advanced">
                         <summary>Advanced</summary>
@@ -888,8 +981,8 @@ export default function MacApp() {
                       </details>
                     )}
                     <p className="footnote">
-                      Console Mode and controller configuration are still in
-                      development.
+                      Console Mode currently plays GameCube games. PSP support
+                      in Console Mode is in progress.
                     </p>
                   </>
                 )}
