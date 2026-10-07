@@ -95,7 +95,9 @@ export interface ConsoleReport {
   focus: FocusOutcome[];
   /** Focus outcome when the frontend first opened. */
   startFocus: FocusOutcome | null;
-  /** Games stopped through the controller escape hatch. */
+  /** Exit holds turned into a polite quit (emulators without a native exit hotkey). */
+  exitRequests: number;
+  /** Stuck games force-stopped through the controller escape hatch. */
   forcedStops: number;
   games: number;
   error: string | null;
@@ -168,6 +170,7 @@ export class ConsoleSession {
       frontendExit: null,
       focus: [],
       startFocus: null,
+      exitRequests: 0,
       forcedStops: 0,
       games: 0,
       error: null,
@@ -271,7 +274,7 @@ export class ConsoleSession {
         // Emulators without a native exit hotkey get a polite stop now (a clean
         // quit for SDL apps such as PPSSPP), forced only if it never exits.
         if (!runner.handlesExitHold) {
-          if (runner.forceStop()) report.forcedStops += 1;
+          if (runner.forceStop()) report.exitRequests += 1;
           return;
         }
         // Dolphin exits by itself on this hold; if the same game is still

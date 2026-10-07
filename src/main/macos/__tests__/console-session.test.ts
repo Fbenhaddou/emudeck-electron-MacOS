@@ -269,7 +269,7 @@ describe('ConsoleSession', () => {
   it('routes a PSP game to the PSP runner and stops that runner on a long hold', async () => {
     let finishGame!: (value: { code: number; signal: null }) => void;
     const psp = 'c'.repeat(32);
-    const { session, deps, runner, pspRunner, hold, launch } = setup({
+    const { session, deps, runner, pspRunner, hold, launch, child } = setup({
       listGames: jest.fn(async () => [
         {
           system: 'psp',
@@ -301,6 +301,10 @@ describe('ConsoleSession', () => {
     expect(runner.forceStop).not.toHaveBeenCalled();
     finishGame({ code: 0, signal: null });
     await game;
+    child.exit(0);
+    await flush();
+    // A polite quit is a normal exit, not an emergency stop.
+    expect(session.report).toMatchObject({ exitRequests: 1, forcedStops: 0 });
   });
 
   it('does not stop a Dolphin game that exited by itself during the grace period', async () => {

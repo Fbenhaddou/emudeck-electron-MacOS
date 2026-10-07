@@ -229,6 +229,7 @@ consoleSession = new ConsoleSession(
         startFocus: report?.startFocus ?? null,
         gameFocus: report?.focus ?? [],
         exit: report?.frontendExit ?? null,
+        exitRequests: report?.exitRequests ?? 0,
         forcedStops: report?.forcedStops ?? 0,
         error: report?.error ?? null,
       })}\n`,
