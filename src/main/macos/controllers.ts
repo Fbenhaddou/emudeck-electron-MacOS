@@ -91,3 +91,66 @@ export function primaryController(
     null
   );
 }
+
+export interface ControllerInfo {
+  name: string;
+  kind: ControllerFamily;
+  /** 0-100, or null when the controller reports no battery. */
+  battery: number | null;
+  charging: boolean;
+  haptics: boolean;
+  motion: boolean;
+}
+
+function kindOf(category: string): ControllerFamily {
+  if (category === 'DualSense') return 'ps5';
+  if (category === 'DualShock 4') return 'ps4';
+  if (/xbox/i.test(category)) return 'xbox';
+  if (/switch pro/i.test(category)) return 'switchpro';
+  return 'other';
+}
+
+/** Validates the GameController inventory printed by `console-guardian --list`. */
+export function parseControllerList(json: string): ControllerInfo[] {
+  let data: unknown;
+  try {
+    data = JSON.parse(json);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(data)) return [];
+  return data.slice(0, 16).flatMap((entry): ControllerInfo[] => {
+    if (!entry || typeof entry !== 'object') return [];
+    const item = entry as Record<string, unknown>;
+    if (typeof item.name !== 'string' || typeof item.category !== 'string')
+      return [];
+    const battery =
+      typeof item.battery === 'number' &&
+      Number.isInteger(item.battery) &&
+      item.battery >= 0 &&
+      item.battery <= 100
+        ? item.battery
+        : null;
+    return [
+      {
+        name: item.name.slice(0, 128),
+        kind: kindOf(item.category),
+        battery,
+        charging: item.charging === true,
+        haptics: item.haptics === true,
+        motion: item.motion === true,
+      },
+    ];
+  });
+}
+
+export function listControllers(helper: string): Promise<ControllerInfo[]> {
+  return new Promise((resolve) => {
+    execFile(
+      helper,
+      ['--list'],
+      { timeout: 5000, maxBuffer: 64 * 1024 },
+      (error, stdout) => resolve(error ? [] : parseControllerList(stdout)),
+    );
+  });
+}

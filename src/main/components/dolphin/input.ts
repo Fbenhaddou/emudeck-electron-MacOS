@@ -10,6 +10,8 @@ import { createHash, randomBytes } from 'crypto';
  */
 
 export type InputFamily = 'ps5';
+/** Standard is linear. Precise squares the stick: finer near the centre, still 100% at full push. */
+export type StickResponse = 'standard' | 'precise';
 
 // Dolphin names SDL devices <source>/<index among same-named devices>/<name>.
 const devices: Record<InputFamily, string> = {
@@ -18,7 +20,13 @@ const devices: Record<InputFamily, string> = {
 
 // Measured with a physical DualSense on Dolphin 2609: SDL reports up as Y+, and
 // PlayStation players expect ○ to cancel, so GameCube B is ○ and X is □.
-function pad(device: string): string {
+function axis(control: string, response: StickResponse): string {
+  const input = `\`${control}\``;
+  // Dolphin input expressions multiply controls; x·x keeps 0 and 1 fixed.
+  return response === 'precise' ? `${input} * ${input}` : input;
+}
+
+function pad(device: string, response: StickResponse): string {
   return `[GCPad1]
 Device = ${device}
 Buttons/A = \`Button S\`
@@ -27,14 +35,14 @@ Buttons/X = \`Button W\`
 Buttons/Y = \`Button N\`
 Buttons/Z = \`Shoulder R\`
 Buttons/Start = \`Start\`
-Main Stick/Up = \`Left Y+\`
-Main Stick/Down = \`Left Y-\`
-Main Stick/Left = \`Left X-\`
-Main Stick/Right = \`Left X+\`
-C-Stick/Up = \`Right Y+\`
-C-Stick/Down = \`Right Y-\`
-C-Stick/Left = \`Right X-\`
-C-Stick/Right = \`Right X+\`
+Main Stick/Up = ${axis('Left Y+', response)}
+Main Stick/Down = ${axis('Left Y-', response)}
+Main Stick/Left = ${axis('Left X-', response)}
+Main Stick/Right = ${axis('Left X+', response)}
+C-Stick/Up = ${axis('Right Y+', response)}
+C-Stick/Down = ${axis('Right Y-', response)}
+C-Stick/Left = ${axis('Right X-', response)}
+C-Stick/Right = ${axis('Right X+', response)}
 Triggers/L = \`Trigger L\`
 Triggers/R = \`Trigger R\`
 Triggers/L-Analog = \`Trigger L\`
@@ -55,9 +63,15 @@ General/Exit = hold(\`Back\` & \`Start\`, 1.5)
 `;
 }
 
-export function managedInput(family: InputFamily): Record<string, string> {
+export function managedInput(
+  family: InputFamily,
+  response: StickResponse = 'standard',
+): Record<string, string> {
   const device = devices[family];
-  return { 'GCPadNew.ini': pad(device), 'Hotkeys.ini': hotkeys(device) };
+  return {
+    'GCPadNew.ini': pad(device, response),
+    'Hotkeys.ini': hotkeys(device),
+  };
 }
 
 export function isInputFamily(family: string): family is InputFamily {
@@ -109,6 +123,7 @@ export async function applyManagedInput(
   configDirectory: string,
   ownershipFile: string,
   family: InputFamily,
+  response: StickResponse = 'standard',
 ): Promise<InputResult> {
   // name → the exact content this app last wrote (version 2), or only its
   // hash (version 1 records, from before content was kept).
@@ -129,7 +144,7 @@ export async function applyManagedInput(
     /* An unreadable record owns nothing; existing files stay the user's. */
   }
   const result: InputResult = { files: {} };
-  const desired = managedInput(family);
+  const desired = managedInput(family, response);
   // eslint-disable-next-line no-restricted-syntax -- Two files, sequentially.
   for (const [name, content] of Object.entries(desired)) {
     const file = path.join(configDirectory, name);
@@ -165,4 +180,85 @@ export async function applyManagedInput(
   await fs.writeFile(temporary, record, { flag: 'wx', mode: 0o600 });
   await fs.rename(temporary, ownershipFile);
   return result;
+}
+
+async function readRecord(ownershipFile: string) {
+  const written: Record<string, string> = {};
+  const hashes: Record<string, string> = {};
+  try {
+    const recorded = await readIfRegular(ownershipFile);
+    const parsed = recorded ? JSON.parse(recorded) : {};
+    Object.entries(parsed?.written || {}).forEach(([name, text]) => {
+      if (typeof text === 'string' && text.length <= 64 * 1024)
+        written[name] = text;
+    });
+    Object.entries(parsed?.files || {}).forEach(([name, hash]) => {
+      if (typeof hash === 'string' && /^[a-f0-9]{64}$/.test(hash))
+        hashes[name] = hash;
+    });
+  } catch {
+    /* Unreadable: owns nothing. */
+  }
+  return { written, hashes };
+}
+
+export type InputState = 'recommended' | 'user' | 'not-set';
+
+/** Read-only: whether the library's Dolphin controls are this app's, the user's, or absent. */
+export async function inputState(
+  configDirectory: string,
+  ownershipFile: string,
+): Promise<InputState> {
+  const { written, hashes } = await readRecord(ownershipFile);
+  let state: InputState = 'not-set';
+  // eslint-disable-next-line no-restricted-syntax -- Two files, sequentially.
+  for (const name of ['GCPadNew.ini', 'Hotkeys.ini']) {
+    // eslint-disable-next-line no-await-in-loop
+    const current = await readIfRegular(path.join(configDirectory, name)).catch(
+      () => '',
+    );
+    if (current !== null) {
+      const ours =
+        written[name] !== undefined
+          ? stillManaged(current, written[name])
+          : hashes[name] === sha256(current);
+      if (!ours) return 'user';
+      state = 'recommended';
+    }
+  }
+  return state;
+}
+
+/**
+ * Explicit user request: replace the library's own Dolphin controls with the
+ * recommended ones. Existing files are renamed to a dated backup, never deleted.
+ */
+export async function adoptManagedInput(
+  configDirectory: string,
+  ownershipFile: string,
+  family: InputFamily,
+  response: StickResponse = 'standard',
+  now: Date = new Date(),
+): Promise<{ backups: string[] }> {
+  const stamp = now.toISOString().replace(/[:.]/g, '-');
+  const backups: string[] = [];
+  const { written } = await readRecord(ownershipFile);
+  // eslint-disable-next-line no-restricted-syntax -- Two files, sequentially.
+  for (const name of ['GCPadNew.ini', 'Hotkeys.ini']) {
+    const file = path.join(configDirectory, name);
+    // eslint-disable-next-line no-await-in-loop
+    const current = await readIfRegular(file);
+    const ours =
+      current !== null &&
+      written[name] !== undefined &&
+      stillManaged(current, written[name]);
+    if (current !== null && !ours) {
+      const backup = `${file}.before-recommended-${stamp}`;
+      // eslint-disable-next-line no-await-in-loop
+      await fs.rename(file, backup);
+      backups.push(path.basename(backup));
+    }
+  }
+  await applyManagedInput(configDirectory, ownershipFile, family, response);
+  return { backups };
 }

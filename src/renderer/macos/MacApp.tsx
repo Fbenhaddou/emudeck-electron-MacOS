@@ -6,7 +6,12 @@ import {
   useLayoutEffect,
 } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
-import type { MacAPI, MacStatus } from '../../shared/macos';
+import type {
+  ControllersStatus,
+  ControllerSummary,
+  MacAPI,
+  MacStatus,
+} from '../../shared/macos';
 
 declare global {
   interface Window {
@@ -14,7 +19,12 @@ declare global {
   }
 }
 type Page =
-  'Library' | 'Emulators' | 'Console Mode' | 'This Mac' | 'Development';
+  | 'Library'
+  | 'Emulators'
+  | 'Console Mode'
+  | 'Controllers'
+  | 'This Mac'
+  | 'Development';
 type Action =
   | 'choosing-library'
   | 'recovering-library'
@@ -24,7 +34,10 @@ type Action =
   | 'installing-console'
   | 'opening-console';
 const sections: { title: string; pages: Page[] }[] = [
-  { title: 'Workspace', pages: ['Library', 'Emulators', 'Console Mode'] },
+  {
+    title: 'Workspace',
+    pages: ['Library', 'Emulators', 'Console Mode', 'Controllers'],
+  },
   { title: 'System', pages: ['This Mac', 'Development'] },
 ];
 const pages = sections.flatMap((section) => section.pages);
@@ -33,6 +46,8 @@ const icons: Record<Page, string> = {
   Emulators: 'M6 7h12l3 10-3 2-4-4h-4l-4 4-3-2L6 7Zm1 4h4m-2-2v4m7-3h.1m2 2h.1',
   'Console Mode':
     'M4 11V8a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v3M2 13a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v5H2v-5Zm2 5v2m16-2v2',
+  Controllers:
+    'M6 7h12l3 10-3 2-4-4h-4l-4 4-3-2L6 7Zm1 4h4m-2-2v4m7-3h.1m2 2h.1',
   'This Mac': 'M3 4h18v13H3V4ZM8 21h8m-4-4v4',
   Development: 'M8 5 2 12l6 7m8-14 6 7-6 7M14 3l-4 18',
 };
@@ -41,6 +56,7 @@ const symbolKeys: Record<Page, string> = {
   Library: 'library',
   Emulators: 'emulators',
   'Console Mode': 'console',
+  Controllers: 'controllers',
   'This Mac': 'this-mac',
   Development: 'development',
 };
@@ -175,6 +191,84 @@ function Spinner() {
   );
 }
 
+const kindNames: Record<ControllerSummary['kind'], string> = {
+  ps5: 'PlayStation',
+  ps4: 'PlayStation',
+  xbox: 'Xbox',
+  switchpro: 'Nintendo',
+  other: 'Controller',
+};
+
+function describeController(pad: ControllerSummary): string {
+  const parts = [kindNames[pad.kind]];
+  if (pad.battery !== null)
+    parts.push(
+      pad.charging
+        ? `Battery ${pad.battery}%, charging`
+        : `Battery ${pad.battery}%`,
+    );
+  const features = [pad.haptics && 'haptics', pad.motion && 'motion'].filter(
+    Boolean,
+  );
+  if (features.length) parts.push(`Supports ${features.join(' and ')}`);
+  return parts.join(' · ');
+}
+
+const controlsText: Record<ControllersStatus['dolphinControls'], string> = {
+  recommended: 'Using the recommended controls for your controller.',
+  user: 'Using this library’s own controller settings.',
+  'not-set': 'Set up automatically the next time you play in Console Mode.',
+  'no-library': 'Choose an available library to manage its controls.',
+};
+
+/** Segmented control with radio semantics; arrow keys move the selection. */
+function Segmented<T extends string>({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: T;
+  options: { value: T; label: string }[];
+  disabled: boolean;
+  onChange: (next: T) => void;
+}) {
+  const move = (event: KeyboardEvent<HTMLButtonElement>) => {
+    const index = options.findIndex((option) => option.value === value);
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
+    if (step === undefined) return;
+    event.preventDefault();
+    const next = options[(index + step + options.length) % options.length];
+    onChange(next.value);
+    (
+      event.currentTarget.parentElement?.querySelector(
+        `[data-value="${next.value}"]`,
+      ) as HTMLButtonElement | null
+    )?.focus();
+  };
+  return (
+    <div className="segmented" role="radiogroup" aria-label={label}>
+      {options.map((option) => (
+        <button
+          type="button"
+          key={option.value}
+          data-value={option.value}
+          role="radio"
+          aria-checked={option.value === value}
+          tabIndex={option.value === value ? 0 : -1}
+          disabled={disabled}
+          onClick={() => onChange(option.value)}
+          onKeyDown={move}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function MacApp() {
   const [status, setStatus] = useState<MacStatus | null>(null);
   const [page, setPage] = useState<Page>('Library');
@@ -182,6 +276,9 @@ export default function MacApp() {
   const [error, setError] = useState('');
   const [statusError, setStatusError] = useState('');
   const [windowActive, setWindowActive] = useState(true);
+  const [controllers, setControllers] = useState<ControllersStatus | null>(
+    null,
+  );
   const [narrow, setNarrow] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const mounted = useRef(true);
@@ -261,6 +358,23 @@ export default function MacApp() {
     query.addEventListener('change', update);
     return () => query.removeEventListener('change', update);
   }, []);
+  const refreshControllers = useCallback(async () => {
+    try {
+      const next = await window.mac.getControllers();
+      if (mounted.current) setControllers(next);
+    } catch {
+      /* The page keeps its last known state. */
+    }
+  }, []);
+  useEffect(() => {
+    // Only while visible: plugging in a controller or battery changes appear live.
+    if (page !== 'Controllers') return undefined;
+    void refreshControllers();
+    const timer = window.setInterval(() => {
+      void refreshControllers();
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [page, refreshControllers]);
   const visibleError = error || statusError;
   const visibleLibraryError =
     page === 'Library' ? status?.libraryError || '' : '';
@@ -865,6 +979,127 @@ export default function MacApp() {
                     <p className="footnote">
                       Controller-only play is in preview: physical DualSense
                       testing has not been completed yet.
+                    </p>
+                  </>
+                )}
+                {page === 'Controllers' && (
+                  <>
+                    <Hero page="Controllers" tint="indigo" title="Controllers">
+                      Controllers connected to this Mac. Console Mode sets up
+                      supported controllers for your games automatically.
+                    </Hero>
+                    <section
+                      className="group"
+                      aria-label="Connected controllers"
+                    >
+                      {!controllers && (
+                        <div className="row progress" role="status">
+                          <Spinner />
+                          <p>Looking for controllers…</p>
+                        </div>
+                      )}
+                      {controllers && controllers.controllers.length === 0 && (
+                        <div className="row">
+                          <div className="row-text">
+                            <h3>No controllers connected</h3>
+                            <p>
+                              Connect one with a USB cable, or pair it in System
+                              Settings › Bluetooth.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                      {controllers?.controllers.map((pad, index) => (
+                        <div
+                          className="row"
+                          // eslint-disable-next-line react/no-array-index-key -- Identical models can be connected together.
+                          key={`${pad.name}-${index}`}
+                        >
+                          <div className="row-text">
+                            <h3>
+                              <span
+                                className="indicator on"
+                                aria-hidden="true"
+                              />
+                              <span className="title">{pad.name}</span>
+                            </h3>
+                            <p>{describeController(pad)}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </section>
+                    <section
+                      className="group"
+                      aria-label="Console Mode controls"
+                    >
+                      <div className="row">
+                        <div className="row-text">
+                          <h3 id="stick-response-label">Stick response</h3>
+                          <p>
+                            Precise makes small movements finer. A full push
+                            still reaches full speed. Applies to the next game.
+                          </p>
+                        </div>
+                        <Segmented
+                          label="Stick response"
+                          value={controllers?.stickResponse || 'standard'}
+                          options={[
+                            { value: 'standard', label: 'Standard' },
+                            { value: 'precise', label: 'Precise' },
+                          ]}
+                          disabled={!controllers}
+                          onChange={(next) => {
+                            setControllers((current) =>
+                              current
+                                ? { ...current, stickResponse: next }
+                                : current,
+                            );
+                            void window.mac
+                              .setStickResponse(next)
+                              .then((result) => {
+                                if (!result.ok) setError(result.error);
+                                return refreshControllers();
+                              });
+                          }}
+                        />
+                      </div>
+                      <div className="row">
+                        <div className="row-text">
+                          <h3>Dolphin controls</h3>
+                          <p>
+                            {controllers
+                              ? controlsText[controllers.dolphinControls]
+                              : 'Checking…'}
+                          </p>
+                        </div>
+                        {controllers?.dolphinControls === 'user' && (
+                          <button
+                            type="button"
+                            disabled={
+                              emulatorBusy ||
+                              consoleBusy ||
+                              !controllers.recommendedAvailable
+                            }
+                            onClick={() => {
+                              void operate('resetting', () =>
+                                window.mac.useRecommendedControls(),
+                              ).then(refreshControllers);
+                            }}
+                          >
+                            Use Recommended Controls…
+                          </button>
+                        )}
+                      </div>
+                    </section>
+                    <p className="footnote">
+                      In a game, hold Create and Options to return to Console
+                      Mode. If a game stops responding, keep holding for 5
+                      seconds.
+                    </p>
+                    <p className="footnote">
+                      Recommended controls are currently available for
+                      DualSense. Other controllers work with each emulator’s own
+                      settings.
                     </p>
                   </>
                 )}

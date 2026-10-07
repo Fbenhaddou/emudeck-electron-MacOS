@@ -23,13 +23,14 @@ describe('actual frozen macOS preload bridge', () => {
     });
   });
 
-  it('exposes only ten fixed methods and no generic IPC primitive', () => {
+  it('exposes only thirteen fixed methods and no generic IPC primitive', () => {
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     expect(exposeInMainWorld).toHaveBeenCalledWith('mac', api);
     expect(Object.isFrozen(api)).toBe(true);
     expect(Object.keys(api).sort()).toEqual([
       'chooseLibrary',
       'enterConsole',
+      'getControllers',
       'getStatus',
       'installConsole',
       'installDolphin',
@@ -38,6 +39,8 @@ describe('actual frozen macOS preload bridge', () => {
       'recoverLibrarySettings',
       'resetDolphin',
       'revealLibrary',
+      'setStickResponse',
+      'useRecommendedControls',
     ]);
   });
 
@@ -51,6 +54,8 @@ describe('actual frozen macOS preload bridge', () => {
     ['recoverLibrarySettings', 'mac:recover-library-settings'],
     ['installConsole', 'mac:install-console'],
     ['enterConsole', 'mac:enter-console'],
+    ['getControllers', 'mac:controllers'],
+    ['useRecommendedControls', 'mac:use-recommended-controls'],
   ])('does not forward renderer arguments from %s', async (method, channel) => {
     const call = api[method as Exclude<keyof MacAPI, 'onRefreshStatus'>] as (
       ...args: unknown[]
@@ -58,6 +63,18 @@ describe('actual frozen macOS preload bridge', () => {
     await call({ command: 'untrusted', path: '/other' }, 'other-channel');
     expect(ipc.invoke).toHaveBeenCalledTimes(1);
     expect(ipc.invoke).toHaveBeenCalledWith(channel);
+  });
+
+  it('forwards exactly one value for stick response on its fixed channel', async () => {
+    const call = api.setStickResponse as unknown as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    await call('precise', { command: 'untrusted' }, 'other-channel');
+    expect(ipc.invoke).toHaveBeenCalledTimes(1);
+    expect(ipc.invoke).toHaveBeenCalledWith(
+      'mac:set-stick-response',
+      'precise',
+    );
   });
 
   it.each([null, undefined, 'callback', 1, {}, []])(

@@ -381,6 +381,7 @@ export default class SmokeHarness {
     const expectedMethods = [
       'chooseLibrary',
       'enterConsole',
+      'getControllers',
       'getStatus',
       'installConsole',
       'installDolphin',
@@ -389,6 +390,8 @@ export default class SmokeHarness {
       'recoverLibrarySettings',
       'resetDolphin',
       'revealLibrary',
+      'setStickResponse',
+      'useRecommendedControls',
     ];
     if (
       !bridge.frozen ||
@@ -404,6 +407,7 @@ export default class SmokeHarness {
     for (const page of [
       'Emulators',
       'Console Mode',
+      'Controllers',
       'This Mac',
       'Development',
     ]) {

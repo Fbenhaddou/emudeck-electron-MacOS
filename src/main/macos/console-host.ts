@@ -6,6 +6,7 @@ import { randomBytes } from 'crypto';
 import { dolphin } from '../components/dolphin';
 import { applyManagedInput, isInputFamily } from '../components/dolphin/input';
 import { detectControllers, primaryController } from './controllers';
+import { readStickResponse } from './preferences';
 import { prepareDolphinLibrary } from './dolphin-library';
 import { createCatalog } from '../components/es-de/catalog';
 import { stableGameID } from '../components/es-de/ids';
@@ -29,6 +30,8 @@ export interface ConsoleHostPaths {
   launcherHelper: string;
   activateHelper: string;
   guardianHelper: string;
+  /** Machine-local controller preferences (stick response). */
+  preferencesFile: string;
 }
 
 export async function privateDirectory(directory: string): Promise<string> {
@@ -215,6 +218,7 @@ export function consoleDependencies(
         configuration,
         path.join(path.dirname(user), '.emulation-workspace-input.json'),
         family,
+        await readStickResponse(paths.preferencesFile),
       );
       process.stderr.write(
         `${JSON.stringify({ event: 'game-input', family, result: result.files })}\n`,

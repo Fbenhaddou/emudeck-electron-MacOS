@@ -19,6 +19,7 @@ describe('symbolCSS', () => {
     const css = symbolCSS(render);
     expect(render.mock.calls.map(([name]) => name)).toEqual([
       'folder',
+      'square.stack.3d.up',
       'gamecontroller',
       'sofa',
       'display',
@@ -26,6 +27,7 @@ describe('symbolCSS', () => {
       'arrow.clockwise',
       'sidebar.left',
       'folder.fill',
+      'square.stack.3d.up.fill',
       'gamecontroller.fill',
       'sofa.fill',
       'display',

@@ -43,6 +43,24 @@ export interface MacStatus {
   };
 }
 
+export interface ControllerSummary {
+  name: string;
+  kind: 'ps5' | 'ps4' | 'xbox' | 'switchpro' | 'other';
+  battery: number | null;
+  charging: boolean;
+  haptics: boolean;
+  motion: boolean;
+}
+
+export interface ControllersStatus {
+  controllers: ControllerSummary[];
+  stickResponse: 'standard' | 'precise';
+  /** The library's Dolphin controls; no-library when none is available. */
+  dolphinControls: 'recommended' | 'user' | 'not-set' | 'no-library';
+  /** Recommended controls exist for the connected controller. */
+  recommendedAvailable: boolean;
+}
+
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type LibraryResult =
   | { ok: true; library: LibraryInfo }
@@ -59,4 +77,7 @@ export interface MacAPI {
   recoverLibrarySettings(): Promise<ActionResult>;
   installConsole(): Promise<ActionResult>;
   enterConsole(): Promise<ActionResult>;
+  getControllers(): Promise<ControllersStatus>;
+  setStickResponse(value: 'standard' | 'precise'): Promise<ActionResult>;
+  useRecommendedControls(): Promise<ActionResult>;
 }

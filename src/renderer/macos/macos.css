@@ -446,6 +446,29 @@ main {
   padding: 48px 0;
 }
 
+/* Segmented control: a capsule track with a raised selected segment. */
+.segmented {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 2px;
+  gap: 2px;
+  border-radius: 999px;
+  background: light-dark(#0000000f, #ffffff14);
+}
+.segmented button {
+  min-height: 20px;
+  padding: 1px 12px;
+  background: transparent;
+  box-shadow: none;
+  font-size: 12px;
+}
+.segmented button[aria-checked='true'] {
+  background: var(--control);
+  box-shadow:
+    0 0 0 0.5px var(--control-edge),
+    0 1px 2px #00000026;
+}
+
 /* Facts: label / value rows inside a group. */
 .facts div {
   display: flex;

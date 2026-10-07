@@ -80,6 +80,7 @@ async function run() {
   const bridgeMethods = [
     'chooseLibrary',
     'enterConsole',
+        'getControllers',
     'getStatus',
     'installConsole',
     'installDolphin',
@@ -88,12 +89,15 @@ async function run() {
     'recoverLibrarySettings',
     'resetDolphin',
     'revealLibrary',
+        'setStickResponse',
+        'useRecommendedControls',
   ];
   const expectedScreenshots = [
     ...[
       'window',
       'page-emulators',
       'page-console-mode',
+      'page-controllers',
       'page-this-mac',
       'page-development',
       'library-selected',

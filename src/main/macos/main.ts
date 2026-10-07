@@ -16,6 +16,7 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import type {
   ActionResult,
+  ControllersStatus,
   LibraryResult,
   MacStatus,
 } from '../../shared/macos';
@@ -33,7 +34,22 @@ import { symbolCSS } from './symbols';
 import { prepareDolphinLibrary } from './dolphin-library';
 import { dolphin } from '../components/dolphin';
 import { readLibrary, selectLibrary, recoverLibrarySettings } from './library';
-import { acceptsEmptyArguments, isTrustedDocument } from './security';
+import {
+  acceptsEmptyArguments,
+  acceptsOneOf,
+  isTrustedDocument,
+} from './security';
+import {
+  adoptManagedInput,
+  inputState,
+  isInputFamily,
+} from '../components/dolphin/input';
+import {
+  detectControllers,
+  listControllers,
+  primaryController,
+} from './controllers';
+import { readStickResponse, writeStickResponse } from './preferences';
 import SmokeHarness from './smoke';
 
 app.setName('Emulation Workspace');
@@ -117,6 +133,7 @@ consoleSession = new ConsoleSession(
       launcherHelper: path.join(helpers, 'console-launcher'),
       activateHelper: path.join(helpers, 'activate-app'),
       guardianHelper: path.join(helpers, 'console-guardian'),
+      preferencesFile: path.join(app.getPath('userData'), 'controllers.json'),
     },
     {
       // Hidden, not closed: the manager stays ready but never competes for focus.
@@ -174,16 +191,35 @@ function operationBusy(): boolean {
   );
 }
 
-function validateCaller(event: IpcMainInvokeEvent, args: unknown[]): void {
+function validateCaller(
+  event: IpcMainInvokeEvent,
+  args: unknown[],
+  acceptArguments: (values: unknown[]) => boolean = acceptsEmptyArguments,
+): void {
   if (
     !mainWindow ||
     event.sender !== mainWindow.webContents ||
     event.senderFrame !== event.sender.mainFrame ||
     !isTrustedDocument(event.senderFrame.url, rendererURL) ||
-    !acceptsEmptyArguments(args)
+    !acceptArguments(args)
   ) {
     throw new Error('This request is not permitted.');
   }
+}
+
+const controllerPreferences = path.join(
+  app.getPath('userData'),
+  'controllers.json',
+);
+const stickResponses = ['standard', 'precise'] as const;
+
+/** The library's Dolphin input files and this app's ownership record. */
+function dolphinInputPaths(library: string) {
+  const { configuration, user } = dolphin.paths(library);
+  return {
+    configuration,
+    ownership: path.join(path.dirname(user), '.emulation-workspace-input.json'),
+  };
 }
 
 async function getStatus(): Promise<MacStatus> {
@@ -417,6 +453,101 @@ ipcMain.handle(
             ? 'Install ES-DE before opening Console Mode.'
             : 'Console Mode could not start. Check that your library drive is connected. Your games and saves are unchanged.'),
       };
+    }
+  },
+);
+ipcMain.handle(
+  'mac:controllers',
+  async (event, ...args): Promise<ControllersStatus> => {
+    validateCaller(event, args);
+    const [controllers, stickResponse, detected] = await Promise.all([
+      listControllers(path.join(helpers, 'console-guardian')),
+      readStickResponse(controllerPreferences),
+      detectControllers(),
+    ]);
+    let dolphinControls: ControllersStatus['dolphinControls'] = 'no-library';
+    try {
+      const library = await availableLibrary();
+      const { configuration, ownership } = dolphinInputPaths(library);
+      dolphinControls = await inputState(configuration, ownership);
+    } catch {
+      dolphinControls = 'no-library';
+    }
+    return {
+      controllers,
+      stickResponse,
+      dolphinControls,
+      recommendedAvailable: isInputFamily(
+        primaryController(detected)?.family || 'none',
+      ),
+    };
+  },
+);
+ipcMain.handle(
+  'mac:set-stick-response',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args, (values) =>
+      acceptsOneOf(values, stickResponses),
+    );
+    try {
+      await writeStickResponse(
+        controllerPreferences,
+        args[0] as (typeof stickResponses)[number],
+      );
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'The setting could not be saved.' };
+    }
+  },
+);
+ipcMain.handle(
+  'mac:use-recommended-controls',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args);
+    if (operationBusy())
+      return {
+        ok: false,
+        error: 'Finish the current operation or quit the game first.',
+      };
+    choosingLibrary = true;
+    try {
+      const family = primaryController(await detectControllers())?.family;
+      if (!family || !isInputFamily(family))
+        return {
+          ok: false,
+          error:
+            'Connect a DualSense controller to use the recommended controls.',
+        };
+      const library = await availableLibrary();
+      const choice = await dialog.showMessageBox(mainWindow!, {
+        type: 'question',
+        message: 'Use the recommended Dolphin controls?',
+        detail:
+          'Your current Dolphin controller settings for this library will be kept in a backup file next to them. Games and saves are not affected.',
+        buttons: ['Cancel', 'Use Recommended Controls'],
+        defaultId: 1,
+        cancelId: 0,
+      });
+      if (choice.response !== 1) return { ok: true };
+      if ((await availableLibrary()) !== library)
+        throw new Error('Library changed');
+      await prepareDolphinLibrary(library);
+      const { configuration, ownership } = dolphinInputPaths(library);
+      await adoptManagedInput(
+        configuration,
+        ownership,
+        family,
+        await readStickResponse(controllerPreferences),
+      );
+      return { ok: true };
+    } catch {
+      return {
+        ok: false,
+        error:
+          'The controls could not be changed. Your existing controller settings are unchanged.',
+      };
+    } finally {
+      choosingLibrary = false;
     }
   },
 );

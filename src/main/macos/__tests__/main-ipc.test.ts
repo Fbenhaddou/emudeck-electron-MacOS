@@ -20,6 +20,11 @@ const channels = [
   'mac:choose-library',
   'mac:reveal-library',
   'mac:recover-library-settings',
+  'mac:install-console',
+  'mac:enter-console',
+  'mac:controllers',
+  'mac:set-stick-response',
+  'mac:use-recommended-controls',
 ];
 
 function createFixture() {
@@ -261,6 +266,19 @@ describe('actual macOS main IPC and quit boundaries', () => {
       window.removeAllListeners();
       window.webContents.removeAllListeners();
     });
+    fixture.assertNoNativeWrites();
+  });
+
+  it.each([
+    [[]],
+    [['PRECISE']],
+    [['precise', 'standard']],
+    [[{ value: 'precise' }]],
+    [['../controllers.json']],
+  ])('accepts only an exact stick response literal: %p', async (args) => {
+    await expect(
+      fixture.invoke('mac:set-stick-response', fixture.caller(), ...args),
+    ).rejects.toThrow('not permitted');
     fixture.assertNoNativeWrites();
   });
 

@@ -9,6 +9,12 @@ const api: MacAPI = Object.freeze({
     ipcRenderer.invoke('mac:recover-library-settings'),
   installConsole: () => ipcRenderer.invoke('mac:install-console'),
   enterConsole: () => ipcRenderer.invoke('mac:enter-console'),
+  getControllers: () => ipcRenderer.invoke('mac:controllers'),
+  // The single forwarded value is re-validated against fixed literals in main.
+  setStickResponse: (value: 'standard' | 'precise') =>
+    ipcRenderer.invoke('mac:set-stick-response', value),
+  useRecommendedControls: () =>
+    ipcRenderer.invoke('mac:use-recommended-controls'),
   getStatus: () => ipcRenderer.invoke('mac:status'),
   onRefreshStatus: (callback: () => void) => {
     if (typeof callback !== 'function')

@@ -8,7 +8,7 @@ import {
   waitFor,
 } from '@testing-library/react';
 import MacApp from '../MacApp';
-import type { MacStatus } from '../../../shared/macos';
+import type { ControllersStatus, MacStatus } from '../../../shared/macos';
 
 const status: MacStatus = {
   console: {
@@ -33,6 +33,21 @@ const status: MacStatus = {
     consoleMode: 'preview',
   },
 };
+const controllersStatus: ControllersStatus = {
+  controllers: [
+    {
+      name: 'DualSense Wireless Controller',
+      kind: 'ps5',
+      battery: 100,
+      charging: true,
+      haptics: true,
+      motion: true,
+    },
+  ],
+  stickResponse: 'standard',
+  dolphinControls: 'user',
+  recommendedAvailable: true,
+};
 let refreshFromMenu: () => void;
 let unsubscribeRefresh: jest.Mock;
 beforeEach(() => {
@@ -43,6 +58,9 @@ beforeEach(() => {
     resetDolphin: jest.fn().mockResolvedValue({ ok: true }),
     installConsole: jest.fn(async () => ({ ok: true as const })),
     enterConsole: jest.fn(async () => ({ ok: true as const })),
+    getControllers: jest.fn(async () => controllersStatus),
+    setStickResponse: jest.fn(async () => ({ ok: true as const })),
+    useRecommendedControls: jest.fn(async () => ({ ok: true as const })),
     recoverLibrarySettings: jest.fn().mockResolvedValue({ ok: true }),
     getStatus: jest.fn().mockResolvedValue(status),
     onRefreshStatus: jest.fn((callback: () => void) => {
@@ -362,5 +380,62 @@ describe('Console Mode page', () => {
     });
     expect(button).toBeDisabled();
     expect(screen.getByRole('status')).toHaveTextContent('Choose Quit ES-DE');
+  });
+});
+
+describe('Controllers page', () => {
+  async function open() {
+    render(<MacApp />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Controllers' }));
+    return screen.findByText('DualSense Wireless Controller');
+  }
+
+  it('lists connected controllers with battery and capabilities', async () => {
+    await open();
+    expect(
+      screen.getByText(
+        'PlayStation · Battery 100%, charging · Supports haptics and motion',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('switches stick response with the keyboard, sending only the literal value', async () => {
+    await open();
+    const standard = screen.getByRole('radio', { name: 'Standard' });
+    expect(standard).toHaveAttribute('aria-checked', 'true');
+    fireEvent.keyDown(standard, { key: 'ArrowRight' });
+    await waitFor(() =>
+      expect(window.mac.setStickResponse).toHaveBeenCalledWith('precise'),
+    );
+    expect(screen.getByRole('radio', { name: 'Precise' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+  });
+
+  it('offers recommended controls only when the library has its own', async () => {
+    await open();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Use Recommended Controls…' }),
+    );
+    await waitFor(() =>
+      expect(window.mac.useRecommendedControls).toHaveBeenCalledWith(),
+    );
+  });
+
+  it('explains how to connect a controller when none is found', async () => {
+    (window.mac.getControllers as jest.Mock).mockResolvedValue({
+      ...controllersStatus,
+      controllers: [],
+      dolphinControls: 'recommended',
+    });
+    render(<MacApp />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Controllers' }));
+    expect(
+      await screen.findByText('No controllers connected'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Use Recommended Controls…' }),
+    ).toBeNull();
   });
 });
