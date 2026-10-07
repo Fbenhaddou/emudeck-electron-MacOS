@@ -51,8 +51,67 @@ function paths(libraryRoot: string): ComponentPaths {
   });
 }
 
+const ipl = (region: 'USA' | 'EUR' | 'JAP') =>
+  `emulators/dolphin/User/GC/${region}/IPL.bin`;
+
+/**
+ * Optional GameCube IPL. Reference CRC32 values are Redump's, as listed in
+ * Dolphin's Source/Core/Core/Boot/Boot.cpp (Load_BS2). NTSC USA and Japan dumps
+ * are identical, so a recognized NTSC dump serves both region folders.
+ */
+const firmware = Object.freeze([
+  Object.freeze({
+    id: 'gc-ipl',
+    system: 'gc',
+    title: 'GameCube IPL',
+    purpose:
+      'The GameCube’s startup software, for its original boot animation and system fonts. Dolphin plays games without it.',
+    required: false,
+    maxBytes: 2 * 1024 * 1024,
+    source: 'Redump, as listed in Dolphin’s Boot.cpp',
+    knownDumps: Object.freeze([
+      {
+        label: 'NTSC Revision 1.0',
+        crc32: '6dac1f2a',
+        destinations: [ipl('USA'), ipl('JAP')],
+      },
+      {
+        label: 'NTSC Revision 1.1',
+        crc32: 'd5e6feea',
+        destinations: [ipl('USA'), ipl('JAP')],
+      },
+      {
+        label: 'NTSC Revision 1.2 (DOL-001)',
+        crc32: 'd235e3f9',
+        destinations: [ipl('USA'), ipl('JAP')],
+      },
+      {
+        label: 'NTSC Revision 1.2 (DOL-101)',
+        crc32: '86573808',
+        destinations: [ipl('USA'), ipl('JAP')],
+      },
+      {
+        label: 'MPAL Revision 1.1 (Brazil)',
+        crc32: '667d0b64',
+        destinations: [ipl('USA')],
+      },
+      {
+        label: 'PAL Revision 1.0',
+        crc32: '4f319f43',
+        destinations: [ipl('EUR')],
+      },
+      {
+        label: 'PAL Revision 1.2',
+        crc32: 'ad1b7f16',
+        destinations: [ipl('EUR')],
+      },
+    ]),
+  }),
+]);
+
 export const dolphin: ComponentAdapter = Object.freeze({
   manifest,
+  firmware,
   paths,
   planLaunch: ({
     libraryRoot,

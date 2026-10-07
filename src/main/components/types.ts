@@ -61,8 +61,38 @@ export interface LaunchPlan {
   env?: Readonly<Record<string, string>>;
 }
 
+/** A known-good dump, identified by a public reference hash. */
+export interface FirmwareDump {
+  /** Plain-language name, e.g. 'NTSC Revision 1.2 (DOL-001)'. */
+  label: string;
+  /** Lowercase hex CRC32 over the whole file (the reference's own method). */
+  crc32: string;
+  /** Library-relative destinations a recognized dump is copied to. */
+  destinations: readonly string[];
+}
+
+/**
+ * Firmware or BIOS a component can use. Lives with the component (what, why,
+ * where, how to recognize a good dump); the firmware manager is generic. Files
+ * always come from the user's own hardware; nothing is ever downloaded.
+ */
+export interface FirmwareRequirement {
+  id: string;
+  system: string;
+  title: string;
+  /** Why it is needed, in plain language. */
+  purpose: string;
+  required: boolean;
+  maxBytes: number;
+  /** Reference source for the hashes, e.g. 'Redump via Dolphin Boot.cpp'. */
+  source: string;
+  knownDumps: readonly FirmwareDump[];
+}
+
 export interface ComponentAdapter {
   manifest: ComponentManifest;
+  /** Firmware/BIOS this component can use; absent when none is needed. */
+  firmware?: readonly FirmwareRequirement[];
   paths: (libraryRoot: string) => ComponentPaths;
   planLaunch: (request: LaunchRequest) => LaunchPlan;
 }
