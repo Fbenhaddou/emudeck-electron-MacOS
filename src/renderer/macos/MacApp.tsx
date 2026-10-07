@@ -981,8 +981,8 @@ export default function MacApp() {
                       </details>
                     )}
                     <p className="footnote">
-                      Console Mode currently plays GameCube games. PSP support
-                      in Console Mode is in progress.
+                      Console Mode plays every system whose emulator is
+                      installed: GameCube and PSP.
                     </p>
                   </>
                 )}
@@ -1198,7 +1198,7 @@ export default function MacApp() {
                     </section>
                     <p className="footnote">
                       In a game, hold Create and Options to return to Console
-                      Mode. If a game stops responding, keep holding for 5
+                      Mode. If a game stops responding, keep holding for about 5
                       seconds.
                     </p>
                     <p className="footnote">
