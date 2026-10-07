@@ -85,6 +85,9 @@ module.exports = {
     extendInfo: {
       NSBluetoothAlwaysUsageDescription:
         'Emulation Workspace uses Bluetooth so wireless game controllers such as DualSense work in Console Mode and in games.',
+      // PPSSPP emulates the PSP camera for the few games that use it.
+      NSCameraUsageDescription:
+        'Some PSP games use a camera. Emulation Workspace asks only when such a game wants it.',
     },
   },
   dmg: {
