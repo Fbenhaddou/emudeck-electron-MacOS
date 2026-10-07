@@ -109,11 +109,13 @@ func launch() throws -> Int32 {
     let info = try metadata(root)
     try require(info.st_uid == geteuid() && (info.st_mode & S_IFMT) == S_IFDIR &&
         (info.st_mode & 0o777) == 0o700)
-    let prefix = root + "/roms/gc/"
+    // Markers live at <root>/roms/<system>/<32 hex>.ewgame; the system is a short
+    // lowercase id. The canonical-path check below rejects any traversal.
+    let prefix = root + "/roms/"
     try require(args[4].hasPrefix(prefix))
     let marker = String(args[4].dropFirst(prefix.count))
-    try require(matches(marker, "^[a-f0-9]{32}\\.ewgame$"))
-    let gameID = String(marker.prefix(32))
+    try require(matches(marker, "^[a-z0-9]{1,16}/[a-f0-9]{32}\\.ewgame$"))
+    let gameID = String(marker.split(separator: "/")[1].prefix(32))
     let markerInfo = try metadata(args[4])
     try require((markerInfo.st_mode & S_IFMT) == S_IFREG && markerInfo.st_size == 0 &&
         markerInfo.st_uid == geteuid() && markerInfo.st_nlink == 1 &&

@@ -48,13 +48,23 @@ function setup(overrides: Partial<ConsoleDependencies> = {}) {
       bundle: '/managed/ES-DE.app',
       executable: '/managed/ES-DE.app/Contents/MacOS/ES-DE',
     })),
+    systems: jest.fn(async () => [
+      { id: 'gc', fullname: 'Nintendo GameCube', label: 'Dolphin' },
+      { id: 'psp', fullname: 'Sony PlayStation Portable', label: 'PPSSPP' },
+    ]),
     listGames: jest.fn(async () => [
       {
+        system: 'gc',
         path: '/lib/roms/gc/a; rm -rf ~.iso',
         relativePath: 'roms/gc/a; rm -rf ~.iso',
         name: 'A',
       },
-      { path: '/lib/roms/gc/b.iso', relativePath: 'roms/gc/b.iso', name: 'B' },
+      {
+        system: 'gc',
+        path: '/lib/roms/gc/b.iso',
+        relativePath: 'roms/gc/b.iso',
+        name: 'B',
+      },
     ]),
     gameID: jest.fn(async (_library, game) =>
       game.name === 'A' ? 'a'.repeat(32) : 'b'.repeat(32),
@@ -87,9 +97,14 @@ function setup(overrides: Partial<ConsoleDependencies> = {}) {
     showManager: jest.fn(),
     ...overrides,
   };
+  const pspRunner = {
+    isBusy: false,
+    forceStop: jest.fn(() => true),
+    launchAndWait: jest.fn(async () => ({ code: 0, signal: null })),
+  };
   const session = new ConsoleSession(
     '/profile/esde-home',
-    runner as GameRunner,
+    { gc: runner as GameRunner, psp: pspRunner as GameRunner },
     deps,
   );
   return {
@@ -100,6 +115,7 @@ function setup(overrides: Partial<ConsoleDependencies> = {}) {
     child,
     watch,
     hold: () => exitHold!(),
+    pspRunner,
     launch: () => launch!,
   };
 }
@@ -172,8 +188,21 @@ describe('ConsoleSession', () => {
     expect(deps.createCatalog).toHaveBeenCalledWith(
       '/private/tmp/ew-console-abc123',
       [
-        { id: 'a'.repeat(32), name: 'A' },
-        { id: 'b'.repeat(32), name: 'B' },
+        {
+          id: 'gc',
+          fullname: 'Nintendo GameCube',
+          label: 'Dolphin',
+          entries: [
+            { id: 'a'.repeat(32), name: 'A' },
+            { id: 'b'.repeat(32), name: 'B' },
+          ],
+        },
+        {
+          id: 'psp',
+          fullname: 'Sony PlayStation Portable',
+          label: 'PPSSPP',
+          entries: [],
+        },
       ],
     );
     expect(deps.hideManager).toHaveBeenCalled();
@@ -192,7 +221,7 @@ describe('ConsoleSession', () => {
       'console',
     );
     expect(deps.restoreFocus).toHaveBeenCalledWith(4242, '/managed/ES-DE.app');
-    expect(deps.prepareGameInput).toHaveBeenCalledWith('/lib');
+    expect(deps.prepareGameInput).toHaveBeenCalledWith('/lib', 'gc');
   });
 
   it('still launches the game if managed input cannot be prepared', async () => {
@@ -232,6 +261,75 @@ describe('ConsoleSession', () => {
     await flush();
     expect(session.report?.forcedStops).toBe(1);
     expect(watch.stop).toHaveBeenCalled();
+  });
+
+  it('routes a PSP game to the PSP runner and stops that runner on a long hold', async () => {
+    let finishGame!: (value: { code: number; signal: null }) => void;
+    const psp = 'c'.repeat(32);
+    const { session, deps, runner, pspRunner, hold, launch } = setup({
+      listGames: jest.fn(async () => [
+        {
+          system: 'psp',
+          path: '/lib/roms/psp/p.pbp',
+          relativePath: 'roms/psp/p.pbp',
+          name: 'P',
+        },
+      ]),
+      gameID: jest.fn(async () => psp),
+    });
+    pspRunner.launchAndWait.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishGame = resolve;
+        }),
+    );
+    await session.enter('/lib');
+    const game = launch()(psp);
+    await flush();
+    expect(pspRunner.launchAndWait).toHaveBeenCalledWith(
+      '/lib',
+      '/lib/roms/psp/p.pbp',
+      'console',
+    );
+    expect(runner.launchAndWait).not.toHaveBeenCalled();
+    expect(deps.prepareGameInput).toHaveBeenCalledWith('/lib', 'psp');
+    hold();
+    expect(pspRunner.forceStop).toHaveBeenCalled();
+    expect(runner.forceStop).not.toHaveBeenCalled();
+    finishGame({ code: 0, signal: null });
+    await game;
+  });
+
+  it('leaves out systems without an installed emulator', async () => {
+    const { session, deps } = setup({
+      systems: jest.fn(async () => [
+        { id: 'gc', fullname: 'Nintendo GameCube', label: 'Dolphin' },
+      ]),
+      listGames: jest.fn(async () => [
+        {
+          system: 'gc',
+          path: '/lib/roms/gc/a.iso',
+          relativePath: 'roms/gc/a.iso',
+          name: 'A',
+        },
+        {
+          system: 'psp',
+          path: '/lib/roms/psp/p.pbp',
+          relativePath: 'roms/psp/p.pbp',
+          name: 'P',
+        },
+      ]),
+    });
+    await session.enter('/lib');
+    const systems = (deps.createCatalog as jest.Mock).mock.calls[0][1];
+    expect(systems.map((system: { id: string }) => system.id)).toEqual(['gc']);
+    expect(session.report?.games ?? 1).toBe(1);
+  });
+
+  it('refuses to open with no installed emulator', async () => {
+    const { session, deps } = setup({ systems: jest.fn(async () => []) });
+    await expect(session.enter('/lib')).rejects.toThrow('Install an emulator');
+    expect(deps.makeRuntime).not.toHaveBeenCalled();
   });
 
   it('refuses unknown IDs', async () => {

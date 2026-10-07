@@ -187,9 +187,21 @@ export interface PublishedProfile {
 export async function publishProfile(
   home: string,
   catalog: Catalog,
-  games: readonly CatalogEntry[],
+  /** Entries per ES-DE system id; a plain list means GameCube. */
+  games:
+    readonly CatalogEntry[] | Readonly<Record<string, readonly CatalogEntry[]>>,
   options: ManagedSettingsOptions = {},
 ): Promise<PublishedProfile> {
+  const bySystem: Readonly<Record<string, readonly CatalogEntry[]>> =
+    Array.isArray(games)
+      ? { gc: games as readonly CatalogEntry[] }
+      : (games as Readonly<Record<string, readonly CatalogEntry[]>>);
+  const systemIDs = Object.keys(bySystem);
+  if (
+    systemIDs.length > 32 ||
+    systemIDs.some((id) => !/^[a-z0-9]{1,16}$/.test(id))
+  )
+    throw new Error('Console profile requires valid system ids');
   if (
     typeof home !== 'string' ||
     !path.isAbsolute(home) ||
@@ -206,7 +218,7 @@ export async function publishProfile(
     path.join(appData, 'custom_systems'),
     path.join(appData, 'settings'),
     path.join(appData, 'gamelists'),
-    path.join(appData, 'gamelists', 'gc'),
+    ...systemIDs.map((id) => path.join(appData, 'gamelists', id)),
   ];
   /* eslint-disable no-restricted-syntax, no-await-in-loop -- Parents before children. */
   for (const directory of directories) await privateDirectory(directory, uid);
@@ -222,13 +234,6 @@ export async function publishProfile(
   const systems = path.join(appData, 'custom_systems', 'es_systems.xml');
   const findRules = path.join(appData, 'custom_systems', 'es_find_rules.xml');
   const settings = path.join(appData, 'settings', 'es_settings.xml');
-  const gamelist = path.join(appData, 'gamelists', 'gc', 'gamelist.xml');
-  const retained = path.join(
-    appData,
-    'gamelists',
-    'gc',
-    'emulation-workspace-retained.xml',
-  );
   await replaceFile(
     systems,
     await readOwned(catalog.systemsPath, uid, 1024 * 1024),
@@ -247,12 +252,24 @@ export async function publishProfile(
     ),
     uid,
   );
-  const merged = mergeGamelist(
-    await readOwned(gamelist, uid, MAX_GAMELIST_BYTES),
-    await readOwned(retained, uid, MAX_GAMELIST_BYTES),
-    games,
-  );
-  await replaceFile(retained, merged.retained, uid);
-  await replaceFile(gamelist, merged.gamelist, uid);
+  // Each system's metadata is merged independently and keyed by its own ids.
+  /* eslint-disable no-restricted-syntax, no-await-in-loop -- Sequential per system. */
+  for (const id of systemIDs) {
+    const gamelist = path.join(appData, 'gamelists', id, 'gamelist.xml');
+    const retained = path.join(
+      appData,
+      'gamelists',
+      id,
+      'emulation-workspace-retained.xml',
+    );
+    const merged = mergeGamelist(
+      await readOwned(gamelist, uid, MAX_GAMELIST_BYTES),
+      await readOwned(retained, uid, MAX_GAMELIST_BYTES),
+      bySystem[id],
+    );
+    await replaceFile(retained, merged.retained, uid);
+    await replaceFile(gamelist, merged.gamelist, uid);
+  }
+  /* eslint-enable no-restricted-syntax, no-await-in-loop */
   return Object.freeze({ home, appData });
 }

@@ -2,7 +2,11 @@
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { createCatalog, CatalogEntry } from '../es-de/catalog';
+import {
+  createCatalog,
+  createSystemsCatalog,
+  CatalogEntry,
+} from '../es-de/catalog';
 
 let root: string;
 const first = 'a'.repeat(32);
@@ -322,4 +326,99 @@ test('refuses an existing profile or a second catalog without overwriting', asyn
   expect(await fs.readFile(catalog.gamelistPath)).toEqual(before);
   expect(await fs.readFile(catalog.helperPath)).toEqual(helper);
   expect(await fs.readdir(catalog.romDirectory)).toEqual([`${first}.ewgame`]);
+});
+
+describe('multi-system catalog', () => {
+  const psp = 'c'.repeat(32);
+
+  it('writes one ES-DE system, marker folder and gamelist per system', async () => {
+    const catalog = await createSystemsCatalog(root, [
+      {
+        id: 'gc',
+        fullname: 'Nintendo GameCube',
+        label: 'Dolphin',
+        entries: [{ id: first, name: 'Cube' }],
+      },
+      {
+        id: 'psp',
+        fullname: 'Sony PlayStation Portable',
+        label: 'PPSSPP',
+        entries: [{ id: psp, name: 'Pocket & <Go>' }],
+      },
+    ]);
+    const systems = parseXML(
+      await fs.readFile(catalog.systemsPath, 'utf8'),
+      true,
+    );
+    expect(
+      Array.from(systems.querySelectorAll('system > name')).map(
+        (node) => node.textContent,
+      ),
+    ).toEqual(['gc', 'psp']);
+    expect(
+      systems.querySelector('system:nth-of-type(2) > fullname')?.textContent,
+    ).toBe('Sony PlayStation Portable');
+    // Both systems use the same fixed helper command; no filename ever appears in it.
+    expect(
+      new Set(
+        Array.from(systems.querySelectorAll('command')).map(
+          (node) => node.textContent,
+        ),
+      ).size,
+    ).toBe(1);
+    expect(catalog.systems.psp.markers[psp]).toBe(
+      path.join(root, 'roms', 'psp', `${psp}.ewgame`),
+    );
+    expect(
+      await fs.readFile(catalog.systems.psp.gamelistPath, 'utf8'),
+    ).toContain('<name>Pocket &amp; &lt;Go&gt;</name>');
+    expect(catalog.markers).toEqual({
+      [first]: path.join(root, 'roms', 'gc', `${first}.ewgame`),
+    });
+  });
+
+  it('rejects an opaque id reused across systems', async () => {
+    await expect(
+      createSystemsCatalog(root, [
+        {
+          id: 'gc',
+          fullname: 'GC',
+          label: 'Dolphin',
+          entries: [{ id: first, name: 'a' }],
+        },
+        {
+          id: 'psp',
+          fullname: 'PSP',
+          label: 'PPSSPP',
+          entries: [{ id: first, name: 'b' }],
+        },
+      ]),
+    ).rejects.toThrow('unique');
+    await expect(fs.lstat(path.join(root, 'roms'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it.each(['../gc', 'GC', 'gc</name><x>', '', 'a'.repeat(17)])(
+    'rejects system id %p before writing anything',
+    async (id) => {
+      await expect(
+        createSystemsCatalog(root, [
+          { id, fullname: 'x', label: 'x', entries: [] },
+        ]),
+      ).rejects.toThrow('valid systems');
+      await expect(fs.lstat(path.join(root, 'home'))).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    },
+  );
+
+  it('rejects duplicate systems', async () => {
+    await expect(
+      createSystemsCatalog(root, [
+        { id: 'gc', fullname: 'a', label: 'a', entries: [] },
+        { id: 'gc', fullname: 'b', label: 'b', entries: [] },
+      ]),
+    ).rejects.toThrow('valid systems');
+  });
 });

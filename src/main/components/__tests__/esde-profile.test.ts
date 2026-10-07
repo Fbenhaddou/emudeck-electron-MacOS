@@ -156,4 +156,33 @@ describe('publishProfile', () => {
       'private real folder',
     );
   });
+
+  it('merges each system gamelist independently', async () => {
+    const home = path.join(root, 'home');
+    await publishProfile(home, catalog, {
+      gc: [{ id: a, name: 'Cube' }],
+      psp: [{ id: b, name: 'Pocket' }],
+    });
+    const gamelists = path.join(home, 'ES-DE', 'gamelists');
+    await fs.writeFile(path.join(gamelists, 'gc', 'gamelist.xml'), written);
+    await publishProfile(home, catalog, {
+      gc: [{ id: a, name: 'x' }],
+      psp: [{ id: b, name: 'Pocket' }],
+    });
+    expect(
+      await fs.readFile(path.join(gamelists, 'gc', 'gamelist.xml'), 'utf8'),
+    ).toContain('<playtime>150</playtime>');
+    const pspList = await fs.readFile(
+      path.join(gamelists, 'psp', 'gamelist.xml'),
+      'utf8',
+    );
+    expect(pspList).toContain(`./${b}.ewgame`);
+    expect(pspList).not.toContain(a);
+  });
+
+  it.each(['../gc', 'GC'])('refuses system id %p', async (id) => {
+    await expect(
+      publishProfile(path.join(root, 'home'), catalog, { [id]: [] }),
+    ).rejects.toThrow('valid system ids');
+  });
 });

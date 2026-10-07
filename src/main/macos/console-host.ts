@@ -8,12 +8,17 @@ import { applyManagedInput, isInputFamily } from '../components/dolphin/input';
 import { detectControllers, primaryController } from './controllers';
 import { readStickResponse } from './preferences';
 import { prepareDolphinLibrary } from './dolphin-library';
-import { createCatalog } from '../components/es-de/catalog';
+import { createSystemsCatalog } from '../components/es-de/catalog';
 import { stableGameID } from '../components/es-de/ids';
 import { installedFrontend } from '../components/es-de/install';
 import { publishProfile } from '../components/es-de/profile';
 import { startConsoleBroker } from './console-broker';
-import type { ConsoleDependencies, ConsoleGame } from './console-session';
+import type {
+  ConsoleDependencies,
+  ConsoleGame,
+  ConsoleSystem,
+} from './console-session';
+import type { ComponentAdapter } from '../components/types';
 import { relativeGamePath } from './console-session';
 import { restoreFocus } from './focus';
 
@@ -70,30 +75,45 @@ async function readSecret(file: string): Promise<Uint8Array> {
 }
 
 /** Supported top-level GameCube files; never follows links or leaves the library. */
-export async function listGames(library: string): Promise<ConsoleGame[]> {
-  const { roms } = dolphin.paths(library);
-  const names = await fs.readdir(roms).catch(() => [] as string[]);
+/** One emulator offered in Console Mode: its ES-DE system and adapter. */
+export interface ConsoleEmulator {
+  system: ConsoleSystem;
+  adapter: ComponentAdapter;
+  installed(): Promise<boolean>;
+}
+
+/** Supported top-level games per system; never follows links or leaves the library. */
+export async function listGames(
+  library: string,
+  emulators: readonly ConsoleEmulator[],
+): Promise<ConsoleGame[]> {
   const games: ConsoleGame[] = [];
   // eslint-disable-next-line no-restricted-syntax -- Bounded sequential inspection.
-  for (const name of names.sort()) {
-    if (games.length >= MAX_GAMES) break;
-    const extension = path.extname(name).toLowerCase();
-    // eslint-disable-next-line no-continue -- Skip unsupported names early.
-    if (
-      name.startsWith('.') ||
-      !dolphin.manifest.romExtensions.includes(extension)
-    )
-      continue; // eslint-disable-line no-continue
-    const file = path.join(roms, name);
+  for (const { system, adapter } of emulators) {
+    const { roms } = adapter.paths(library);
     // eslint-disable-next-line no-await-in-loop
-    const stat = await fs.lstat(file).catch(() => null);
-    // eslint-disable-next-line no-await-in-loop
-    if (stat?.isFile() && (await fs.realpath(file)) === file)
-      games.push({
-        path: file,
-        relativePath: relativeGamePath(library, file),
-        name: path.basename(name, path.extname(name)).normalize('NFC'),
-      });
+    const names = await fs.readdir(roms).catch(() => [] as string[]);
+    // eslint-disable-next-line no-restricted-syntax -- Bounded sequential inspection.
+    for (const name of names.sort()) {
+      if (games.length >= MAX_GAMES) break;
+      const extension = path.extname(name).toLowerCase();
+      if (
+        name.startsWith('.') ||
+        !adapter.manifest.romExtensions.includes(extension)
+      )
+        continue; // eslint-disable-line no-continue
+      const file = path.join(roms, name);
+      // eslint-disable-next-line no-await-in-loop
+      const stat = await fs.lstat(file).catch(() => null);
+      // eslint-disable-next-line no-await-in-loop
+      if (stat?.isFile() && (await fs.realpath(file)) === file)
+        games.push({
+          system: system.id,
+          path: file,
+          relativePath: relativeGamePath(library, file),
+          name: path.basename(name, path.extname(name)).normalize('NFC'),
+        });
+    }
   }
   return games;
 }
@@ -155,11 +175,20 @@ async function removeRuntime(root: string): Promise<void> {
 export function consoleDependencies(
   paths: ConsoleHostPaths,
   manager: { hide(): void; show(): void },
+  emulators: readonly ConsoleEmulator[],
 ): ConsoleDependencies {
   return {
+    systems: async () => {
+      const available = await Promise.all(
+        emulators.map((emulator) => emulator.installed().catch(() => false)),
+      );
+      return emulators
+        .filter((_, index) => available[index])
+        .map((emulator) => emulator.system);
+    },
     frontend: async () =>
       installedFrontend(await privateDirectory(paths.frontendRoot)),
-    listGames,
+    listGames: (library) => listGames(library, emulators),
     gameID: async (library, game) => {
       // Library identity plus relative path: stable across remounts, even on
       // exFAT where per-file inodes are synthesized at each mount.
@@ -172,7 +201,7 @@ export function consoleDependencies(
     },
     makeRuntime: () => makeRuntime(paths.launcherHelper),
     removeRuntime,
-    createCatalog,
+    createCatalog: createSystemsCatalog,
     publishProfile: async (home, catalog, entries) => {
       // Button glyphs follow the connected controller; unknown families keep ES-DE's default.
       const family = primaryController(await detectControllers())?.family;
@@ -203,7 +232,9 @@ export function consoleDependencies(
       // Closing its input ends the helper; it never outlives the session.
       return { stop: () => guardian.stdin?.end() };
     },
-    prepareGameInput: async (library) => {
+    prepareGameInput: async (library, system) => {
+      // Dolphin's managed input; PPSSPP prepares its controls in its runtime.
+      if (system !== 'gc') return;
       const controller = primaryController(await detectControllers());
       const family = controller?.family || 'none';
       if (!isInputFamily(family)) {

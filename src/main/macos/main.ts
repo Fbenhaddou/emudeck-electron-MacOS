@@ -162,7 +162,7 @@ const pinnedEmulatorIDs = Object.keys(pinnedEmulators) as Array<
 >;
 consoleSession = new ConsoleSession(
   path.join(consoleRoot, 'esde-home'),
-  manager,
+  { gc: manager, psp: ppssppRuntime },
   consoleDependencies(
     {
       frontendRoot,
@@ -200,6 +200,23 @@ consoleSession = new ConsoleSession(
         );
       },
     },
+    [
+      {
+        system: { id: 'gc', fullname: 'Nintendo GameCube', label: 'Dolphin' },
+        adapter: dolphin,
+        installed: async () => Boolean((await manager.status()).version),
+      },
+      {
+        system: {
+          id: 'psp',
+          fullname: 'Sony PlayStation Portable',
+          label: 'PPSSPP',
+        },
+        adapter: ppsspp,
+        installed: async () =>
+          (await ppssppRuntime.status()).health === 'installed',
+      },
+    ],
   ),
   // eslint-disable-next-line no-use-before-define -- Hoisted; runs after startup.
   () => {

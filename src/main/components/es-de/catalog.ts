@@ -8,6 +8,12 @@ export interface CatalogEntry {
   name: string;
 }
 
+export interface CatalogSystemPaths {
+  romDirectory: string;
+  gamelistPath: string;
+  markers: Readonly<Record<string, string>>;
+}
+
 export interface Catalog {
   root: string;
   home: string;
@@ -18,6 +24,8 @@ export interface Catalog {
   findRulesPath: string;
   command: string;
   markers: Readonly<Record<string, string>>;
+  /** Per-system marker folders and gamelists (includes the first system). */
+  systems: Readonly<Record<string, CatalogSystemPaths>>;
 }
 
 const MAX_ENTRIES = 10000;
@@ -143,16 +151,27 @@ async function absent(target: string): Promise<void> {
   throw new Error('Existing catalog or profile is preserved');
 }
 
+export interface CatalogSystem {
+  /** ES-DE system id and folder name, e.g. 'gc', 'psp'. */
+  id: string;
+  /** ES-DE full name shown on the system carousel. */
+  fullname: string;
+  /** Emulator label for the launch command. */
+  label: string;
+  entries: readonly CatalogEntry[];
+}
+
 /**
  * Build only disposable owned state. The caller first copies its verified native
  * helper to root/helper and keeps opaque-ID -> original-ROM mappings in memory.
  * Never run this concurrently with a process modifying the private session root.
  * Failure leaves partial owned state for the caller to discard; no recursive
  * rollback can accidentally delete a directory replaced during construction.
+ * Opaque IDs are unique across all systems: the broker allowlist is flat.
  */
-export async function createCatalog(
+export async function createSystemsCatalog(
   root: string,
-  entries: readonly CatalogEntry[],
+  systems: readonly CatalogSystem[],
 ): Promise<Catalog> {
   if (
     typeof root !== 'string' ||
@@ -163,11 +182,40 @@ export async function createCatalog(
     path.resolve(root) !== root
   )
     throw new Error('Catalog root requires a bounded absolute ASCII path');
+  if (
+    !Array.isArray(systems) ||
+    systems.length < 1 ||
+    systems.length > 32 ||
+    new Set(systems.map((system) => system.id)).size !== systems.length ||
+    systems.some(
+      (system) =>
+        typeof system.id !== 'string' ||
+        !/^[a-z0-9]{1,16}$/.test(system.id) ||
+        typeof system.fullname !== 'string' ||
+        system.fullname.length > 128 ||
+        typeof system.label !== 'string' ||
+        system.label.length > 64,
+    )
+  )
+    throw new Error('Catalog requires distinct, valid systems');
   const uid = process.getuid?.();
   if (uid === undefined)
     throw new Error('Catalog requires POSIX ownership checks');
-  // Snapshot before the first await so caller mutation cannot alter checked IDs.
-  const games = snapshotEntries(entries);
+  // Snapshot before the first await so caller mutation cannot alter checked IDs;
+  // one snapshot enforces uniqueness and size limits across every system.
+  const counts = systems.map((system) => system.entries.length);
+  const all = snapshotEntries(systems.flatMap((system) => [...system.entries]));
+  const perSystem = systems.map((system, index) => {
+    const offset = counts
+      .slice(0, index)
+      .reduce((sum, count) => sum + count, 0);
+    return {
+      id: system.id,
+      fullname: system.fullname,
+      label: system.label,
+      games: all.slice(offset, offset + counts[index]),
+    };
+  });
   const identity = await assertRoot(root, uid);
   const helperPath = path.join(root, 'helper');
   await assertHelper(helperPath, uid);
@@ -175,21 +223,20 @@ export async function createCatalog(
   const appData = path.join(home, 'ES-DE');
   const systemsDirectory = path.join(appData, 'custom_systems');
   const gamelists = path.join(appData, 'gamelists');
-  const gamelistDirectory = path.join(gamelists, 'gc');
   const roms = path.join(root, 'roms');
-  const romDirectory = path.join(roms, 'gc');
   const systemsPath = path.join(systemsDirectory, 'es_systems.xml');
   const findRulesPath = path.join(systemsDirectory, 'es_find_rules.xml');
-  const gamelistPath = path.join(gamelistDirectory, 'gamelist.xml');
   await Promise.all([absent(home), absent(roms)]);
   const directories = [
     home,
     appData,
     systemsDirectory,
     gamelists,
-    gamelistDirectory,
     roms,
-    romDirectory,
+    ...perSystem.flatMap((system) => [
+      path.join(gamelists, system.id),
+      path.join(roms, system.id),
+    ]),
   ];
   /* eslint-disable no-restricted-syntax, no-await-in-loop -- Exclusive mutations run in a deterministic order. */
   for (const directory of directories) {
@@ -203,12 +250,21 @@ export async function createCatalog(
       throw new Error('Catalog directory boundary changed');
   }
 
-  const markers: Record<string, string> = {};
-  for (const game of games) {
-    await assertRoot(root, uid, identity);
-    const marker = path.join(romDirectory, `${game.id}.ewgame`);
-    await fs.writeFile(marker, '', { flag: 'wx', mode: 0o600 });
-    markers[game.id] = marker;
+  const paths: Record<string, CatalogSystemPaths> = {};
+  for (const system of perSystem) {
+    const romDirectory = path.join(roms, system.id);
+    const markers: Record<string, string> = {};
+    for (const game of system.games) {
+      await assertRoot(root, uid, identity);
+      const marker = path.join(romDirectory, `${game.id}.ewgame`);
+      await fs.writeFile(marker, '', { flag: 'wx', mode: 0o600 });
+      markers[game.id] = marker;
+    }
+    paths[system.id] = Object.freeze({
+      romDirectory,
+      gamelistPath: path.join(gamelists, system.id, 'gamelist.xml'),
+      markers: Object.freeze(markers),
+    });
   }
   /* eslint-enable no-restricted-syntax, no-await-in-loop */
 
@@ -216,34 +272,58 @@ export async function createCatalog(
   // Our absolute ASCII helper path excludes whitespace and shell metacharacters.
   const command = `${helperPath} --session '${root}' --game %ROM%`;
   const declaration = '<?xml version="1.0" encoding="UTF-8"?>\n';
-  const gamelist = `${declaration}<gameList>\n${games
-    .map(
-      (game) =>
-        `  <game><path>./${game.id}.ewgame</path><name>${xmlText(game.name)}</name></game>`,
-    )
-    .join('\n')}\n</gameList>\n`;
   // ES-DE deliberately reads loadExclusive as a top-level sibling (pugixml).
-  const systems = `${declaration}<loadExclusive/>\n<systemList>\n  <system>\n    <name>gc</name>\n    <fullname>Nintendo GameCube</fullname>\n    <path>${romDirectory}</path>\n    <extension>.ewgame</extension>\n    <command label="Dolphin">${xmlText(command)}</command>\n    <platform>gc</platform>\n    <theme>gc</theme>\n  </system>\n</systemList>\n`;
+  const systemsXML = `${declaration}<loadExclusive/>\n<systemList>\n${perSystem
+    .map(
+      (system) =>
+        `  <system>\n    <name>${system.id}</name>\n    <fullname>${xmlText(system.fullname)}</fullname>\n    <path>${paths[system.id].romDirectory}</path>\n    <extension>.ewgame</extension>\n    <command label="${xmlText(system.label)}">${xmlText(command)}</command>\n    <platform>${system.id}</platform>\n    <theme>${system.id}</theme>\n  </system>`,
+    )
+    .join('\n')}\n</systemList>\n`;
   await assertRoot(root, uid, identity);
-  await fs.writeFile(gamelistPath, gamelist, { flag: 'wx', mode: 0o600 });
+  /* eslint-disable no-restricted-syntax, no-await-in-loop -- One gamelist per system. */
+  for (const system of perSystem) {
+    const gamelist = `${declaration}<gameList>\n${system.games
+      .map(
+        (game) =>
+          `  <game><path>./${game.id}.ewgame</path><name>${xmlText(game.name)}</name></game>`,
+      )
+      .join('\n')}\n</gameList>\n`;
+    await fs.writeFile(paths[system.id].gamelistPath, gamelist, {
+      flag: 'wx',
+      mode: 0o600,
+    });
+  }
+  /* eslint-enable no-restricted-syntax, no-await-in-loop */
   // A literal helper command needs no discovery rules or additional emulators.
   await fs.writeFile(findRulesPath, `${declaration}<ruleList/>\n`, {
     flag: 'wx',
     mode: 0o600,
   });
-  // Publish the launch profile last, after its markers and gamelist exist.
-  await fs.writeFile(systemsPath, systems, { flag: 'wx', mode: 0o600 });
+  // Publish the launch profile last, after its markers and gamelists exist.
+  await fs.writeFile(systemsPath, systemsXML, { flag: 'wx', mode: 0o600 });
   await assertRoot(root, uid, identity);
   await assertHelper(helperPath, uid);
+  const first = paths[perSystem[0].id];
   return Object.freeze({
     root,
     home,
     helperPath,
-    romDirectory,
-    gamelistPath,
+    romDirectory: first.romDirectory,
+    gamelistPath: first.gamelistPath,
     systemsPath,
     findRulesPath,
     command,
-    markers: Object.freeze(markers),
+    markers: first.markers,
+    systems: Object.freeze(paths),
   });
+}
+
+/** GameCube-only catalog (the original single-system form). */
+export function createCatalog(
+  root: string,
+  entries: readonly CatalogEntry[],
+): Promise<Catalog> {
+  return createSystemsCatalog(root, [
+    { id: 'gc', fullname: 'Nintendo GameCube', label: 'Dolphin', entries },
+  ]);
 }

@@ -1,18 +1,31 @@
 /* eslint max-classes-per-file: ["error", 2] -- A tiny user-facing error marker lives with its only user. */
 import path from 'path';
 import type { ChildProcess, SpawnOptions } from 'child_process';
-import type { Catalog, CatalogEntry } from '../components/es-de/catalog';
+import type {
+  Catalog,
+  CatalogEntry,
+  CatalogSystem,
+} from '../components/es-de/catalog';
 import type { PublishedProfile } from '../components/es-de/profile';
 import { activateUntilHeld } from './focus';
 import type { FocusOutcome } from './focus';
 
 /* eslint-disable no-unused-vars -- Names document the injected contracts. */
 export interface ConsoleGame {
+  /** ES-DE system id, e.g. 'gc' or 'psp'. */
+  system: string;
   /** Canonical absolute ROM path inside the library. */
   path: string;
   /** Path relative to the library root, '/' separated. */
   relativePath: string;
   name: string;
+}
+
+/** A system whose emulator is installed and can run games in Console Mode. */
+export interface ConsoleSystem {
+  id: string;
+  fullname: string;
+  label: string;
 }
 
 export interface ConsoleFrontend {
@@ -33,16 +46,18 @@ export interface GameRunner {
 export interface ConsoleDependencies {
   /** Verified managed ES-DE installation, or null when not installed. */
   frontend(): Promise<ConsoleFrontend | null>;
+  /** Systems whose emulator is installed. */
+  systems(): Promise<ConsoleSystem[]>;
   listGames(library: string): Promise<ConsoleGame[]>;
   gameID(library: string, game: ConsoleGame): Promise<string>;
   /** Private ASCII runtime root containing a verified copy of the wait client. */
   makeRuntime(): Promise<string>;
   removeRuntime(root: string): Promise<void>;
-  createCatalog(root: string, entries: CatalogEntry[]): Promise<Catalog>;
+  createCatalog(root: string, systems: CatalogSystem[]): Promise<Catalog>;
   publishProfile(
     home: string,
     catalog: Catalog,
-    entries: CatalogEntry[],
+    entries: Record<string, CatalogEntry[]>,
   ): Promise<PublishedProfile>;
   startBroker(
     root: string,
@@ -66,7 +81,7 @@ export interface ConsoleDependencies {
   /** Reports a long controller exit hold, even while an emulator is frontmost. */
   watchExitHold(onHold: () => void): { stop(): void };
   /** Best effort: managed controller input for the game about to start. */
-  prepareGameInput(library: string): Promise<void>;
+  prepareGameInput(library: string, system: string): Promise<void>;
 }
 /* eslint-enable no-unused-vars */
 
@@ -106,6 +121,8 @@ export class ConsoleSession {
 
   private activeGame: Promise<unknown> | null = null;
 
+  private activeRunner: GameRunner | null = null;
+
   private lastReport: ConsoleReport | null = null;
 
   private exitWatch: { stop(): void } | null = null;
@@ -113,7 +130,8 @@ export class ConsoleSession {
   // eslint-disable-next-line no-useless-constructor -- Parameter properties.
   constructor(
     private readonly profileHome: string,
-    private readonly runner: GameRunner,
+    /** One runner per ES-DE system id (Dolphin for gc, PPSSPP for psp). */
+    private readonly runners: Readonly<Record<string, GameRunner>>,
     private readonly dependencies: ConsoleDependencies,
     private readonly onChange: () => void = () => undefined,
   ) {
@@ -134,7 +152,7 @@ export class ConsoleSession {
 
   async enter(library: string): Promise<void> {
     if (this.current !== 'idle') throw failure('Console Mode is already open');
-    if (this.runner.isBusy)
+    if (Object.values(this.runners).some((runner) => runner.isBusy))
       throw failure(
         'Finish the current emulator task before opening Console Mode',
       );
@@ -162,21 +180,34 @@ export class ConsoleSession {
       (await deps.strayFrontends(frontend.executable)).forEach((pid) =>
         deps.terminate(pid),
       );
-      const games = await deps.listGames(library);
-      const byID = new Map<string, string>();
-      const entries: CatalogEntry[] = [];
+      // Only systems with an installed emulator and a runner appear in ES-DE.
+      const systems = (await deps.systems()).filter(
+        (system) => this.runners[system.id],
+      );
+      if (!systems.length)
+        throw failure('Install an emulator before opening Console Mode');
+      const entries: Record<string, CatalogEntry[]> = Object.fromEntries(
+        systems.map((system) => [system.id, [] as CatalogEntry[]]),
+      );
+      const games = (await deps.listGames(library)).filter(
+        (game) => entries[game.system],
+      );
+      const byID = new Map<string, { system: string; path: string }>();
       // eslint-disable-next-line no-restricted-syntax -- Bounded sequential identity derivation.
       for (const game of games) {
         // eslint-disable-next-line no-await-in-loop
         const id = await deps.gameID(library, game);
         if (!byID.has(id)) {
-          byID.set(id, game.path);
-          entries.push({ id, name: game.name });
+          byID.set(id, { system: game.system, path: game.path });
+          entries[game.system].push({ id, name: game.name });
         }
       }
-      report.games = entries.length;
+      report.games = byID.size;
       runtime = await deps.makeRuntime();
-      const catalog = await deps.createCatalog(runtime, entries);
+      const catalog = await deps.createCatalog(
+        runtime,
+        systems.map((system) => ({ ...system, entries: entries[system.id] })),
+      );
       const profile = await deps.publishProfile(
         this.profileHome,
         catalog,
@@ -232,7 +263,8 @@ export class ConsoleSession {
       // Escape hatch: if a game's emulator stops responding, a long hold of the
       // controller exit combination stops that game and returns to the frontend.
       this.exitWatch = deps.watchExitHold(() => {
-        if (this.activeGame && this.runner.forceStop()) report.forcedStops += 1;
+        if (this.activeGame && this.activeRunner?.forceStop())
+          report.forcedStops += 1;
       });
       this.current = 'running';
       this.onChange();
@@ -272,14 +304,18 @@ export class ConsoleSession {
   private async play(
     library: string,
     frontend: ConsoleFrontend,
-    rom: string | undefined,
+    target: { system: string; path: string } | undefined,
     report: ConsoleReport,
   ) {
-    if (!rom || this.current !== 'running')
+    const runner = target && this.runners[target.system];
+    if (!target || !runner || this.current !== 'running')
       throw failure('Console Mode is not ready');
-    await this.dependencies.prepareGameInput(library).catch(() => undefined);
-    const game = this.runner.launchAndWait(library, rom, 'console');
+    await this.dependencies
+      .prepareGameInput(library, target.system)
+      .catch(() => undefined);
+    const game = runner.launchAndWait(library, target.path, 'console');
     this.activeGame = game;
+    this.activeRunner = runner;
     try {
       const result = await game;
       const pid = this.frontendChild?.pid;
@@ -294,6 +330,7 @@ export class ConsoleSession {
       return result;
     } finally {
       this.activeGame = null;
+      this.activeRunner = null;
     }
   }
 
