@@ -57,6 +57,8 @@ export interface LaunchPlan {
   executable: string;
   args: readonly string[];
   cwd: string;
+  /** Extra environment for isolation (e.g. HOME); merged over a minimal base. */
+  env?: Readonly<Record<string, string>>;
 }
 
 export interface ComponentAdapter {

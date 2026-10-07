@@ -1,15 +1,11 @@
-/* eslint-disable no-bitwise -- POSIX permission checks are bit masks. */
-import fs from 'fs/promises';
-import path from 'path';
-import { downloadPinned } from '../dolphin/download';
 import type { PinnedArtifact } from '../dolphin/download';
-import {
-  checkBundleLinks,
-  detachStage,
-  runProcess,
-  validateMount,
-} from '../dolphin/install';
 import type { ProcessRunner } from '../dolphin/install';
+import { pinnedApp, readImageLicense } from '../shared/pinned-app';
+import type {
+  AppHealth,
+  InstalledApp,
+  PinnedInstallOptions,
+} from '../shared/pinned-app';
 
 /**
  * ES-DE is installed from one reviewed, pinned release. Its bundle identifier is
@@ -27,343 +23,30 @@ export const ESDE_RELEASE = Object.freeze({
   teamIdentifier: 'K56UAA4SXL',
 });
 
-const BUNDLE = 'ES-DE.app';
-const STAGE_PATTERN = /^\.esde-stage-[A-Za-z0-9]{6}$/;
-const MARKER = '.emulation-workspace-esde-stage';
+const esde = pinnedApp({
+  id: 'esde',
+  displayName: 'ES-DE',
+  version: ESDE_RELEASE.version,
+  artifact: ESDE_RELEASE.artifact,
+  bundleName: 'ES-DE.app',
+  executable: 'ES-DE',
+  bundleIdentifier: ESDE_RELEASE.bundleIdentifier,
+  teamIdentifier: ESDE_RELEASE.teamIdentifier,
+  license: 'image',
+});
 
-export interface InstalledFrontend {
-  version: string;
-  bundle: string;
-  executable: string;
-}
+export type InstalledFrontend = InstalledApp;
+export type FrontendHealth = AppHealth;
+export type EsdeInstallOptions = PinnedInstallOptions & {
+  acceptLicense: NonNullable<PinnedInstallOptions['acceptLicense']>;
+};
 
-/* eslint-disable no-unused-vars -- Names document injected contracts. */
-export interface EsdeInstallOptions {
-  /** Shows the image's own license text; resolves true only if the user agrees. */
-  acceptLicense: (text: string) => Promise<boolean>;
-  run?: ProcessRunner;
-  download?: typeof downloadPinned;
-}
-/* eslint-enable no-unused-vars */
-
-function json(output: string): unknown {
-  return JSON.parse(output);
-}
-
-/** The DMG's license agreement, read without mounting or accepting it. */
-export async function readLicense(
-  dmg: string,
-  run: ProcessRunner = runProcess,
-): Promise<string> {
-  const resources = await run('/usr/bin/hdiutil', ['udifderez', '-xml', dmg]);
-  if (Buffer.byteLength(resources) > 4 * 1024 * 1024)
-    throw new Error('Disk image resources are too large');
-  // The resource list holds binary <data>, which JSON cannot represent; extract
-  // only the English license entry, whose data plutil prints as base64.
-  let encoded: string | null = null;
-  // eslint-disable-next-line no-restricted-syntax -- Few bounded sequential lookups.
-  for (let index = 0; index < 8 && encoded === null; index += 1) {
-    // eslint-disable-next-line no-await-in-loop
-    const name = await run(
-      '/usr/bin/plutil',
-      ['-extract', `TEXT.${index}.Name`, 'raw', '-o', '-', '-'],
-      resources,
-    ).catch(() => null);
-    if (name === null) break;
-    if (name.trim() === 'English')
-      // eslint-disable-next-line no-await-in-loop
-      encoded = await run(
-        '/usr/bin/plutil',
-        ['-extract', `TEXT.${index}.Data`, 'raw', '-o', '-', '-'],
-        resources,
-      );
-  }
-  if (!encoded || !/^[A-Za-z0-9+/=\s]+$/.test(encoded))
-    throw new Error('The ES-DE license agreement could not be read');
-  const bytes = Buffer.from(encoded.replace(/\s/g, ''), 'base64');
-  if (!bytes.length || bytes.length > 64 * 1024)
-    throw new Error('The ES-DE license agreement could not be read');
-  let text: string;
-  try {
-    text = new TextDecoder('macintosh', { fatal: true }).decode(
-      Uint8Array.from(bytes),
-    );
-  } catch {
-    text = bytes.toString('latin1');
-  }
-  return text.replace(/\r\n?/g, '\n').trim();
-}
-
-/** Identity, native architecture, every signature seal, publisher and Gatekeeper. */
-export async function verifyFrontend(
-  bundle: string,
-  run: ProcessRunner = runProcess,
-): Promise<void> {
-  const info = json(
-    await run('/usr/bin/plutil', [
-      '-convert',
-      'json',
-      '-o',
-      '-',
-      path.join(bundle, 'Contents', 'Info.plist'),
-    ]),
-  ) as Record<string, unknown>;
-  if (
-    !info ||
-    info.CFBundleIdentifier !== ESDE_RELEASE.bundleIdentifier ||
-    info.CFBundleExecutable !== 'ES-DE' ||
-    info.CFBundleShortVersionString !== ESDE_RELEASE.version
-  )
-    throw new Error('Unexpected ES-DE bundle identity');
-  const architectures = (
-    await run('/usr/bin/lipo', [
-      '-archs',
-      path.join(bundle, 'Contents', 'MacOS', 'ES-DE'),
-    ])
-  )
-    .trim()
-    .split(/\s+/);
-  if (!architectures.includes('arm64'))
-    throw new Error('ES-DE has no native Apple Silicon executable');
-  await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', bundle]);
-  await run('/usr/bin/codesign', [
-    '--verify',
-    '--strict',
-    '-R',
-    `=anchor apple generic and identifier "${ESDE_RELEASE.bundleIdentifier}" and certificate leaf[subject.OU] = "${ESDE_RELEASE.teamIdentifier}"`,
-    bundle,
-  ]);
-  await run('/usr/sbin/spctl', [
-    '--assess',
-    '--type',
-    'execute',
-    '--verbose=2',
-    bundle,
-  ]);
-}
-
-async function ownedRoot(root: string): Promise<string> {
-  const stat = await fs.lstat(root);
-  if (
-    !path.isAbsolute(root) ||
-    !stat.isDirectory() ||
-    stat.isSymbolicLink() ||
-    stat.uid !== process.getuid?.() ||
-    (stat.mode & 0o022) !== 0 ||
-    (await fs.realpath(root)) !== root
-  )
-    throw new Error('Install root must be an owned private real directory');
-  return root;
-}
-
-function frontendAt(root: string): InstalledFrontend {
-  const bundle = path.join(root, ESDE_RELEASE.version, BUNDLE);
-  return Object.freeze({
-    version: ESDE_RELEASE.version,
-    bundle,
-    executable: path.join(bundle, 'Contents', 'MacOS', 'ES-DE'),
-  });
-}
-
-/**
- * Cheap status check: the installed version according to its receipt. Never use
- * this to authorize execution; installedFrontend verifies signatures first.
- */
-export async function installedVersion(root: string): Promise<string | null> {
-  const frontend = frontendAt(await ownedRoot(root));
-  try {
-    const receipt = json(
-      await fs.readFile(
-        path.join(path.dirname(frontend.bundle), 'receipt.json'),
-        'utf8',
-      ),
-    ) as Record<string, unknown>;
-    return receipt.version === ESDE_RELEASE.version &&
-      receipt.sha256 === ESDE_RELEASE.artifact.sha256
-      ? ESDE_RELEASE.version
-      : null;
-  } catch {
-    return null;
-  }
-}
-
-export type FrontendHealth = 'missing' | 'installed' | 'damaged';
-
-/**
- * Cheap status check (no signature work): our receipt plus the files a launch
- * needs. Files deleted or replaced after installation read as damaged.
- */
-export async function frontendHealth(root: string): Promise<FrontendHealth> {
-  if (!(await installedVersion(root))) return 'missing';
-  const frontend = frontendAt(await ownedRoot(root));
-  const regular = (file: string) =>
-    fs.lstat(file).then(
-      (stat) => stat.isFile() && !stat.isSymbolicLink(),
-      () => false,
-    );
-  const intact =
-    (await regular(path.join(frontend.bundle, 'Contents', 'Info.plist'))) &&
-    (await regular(frontend.executable));
-  return intact ? 'installed' : 'damaged';
-}
-
-/** Returns the verified managed installation, or null if absent or incomplete. */
-export async function installedFrontend(
-  root: string,
-  run: ProcessRunner = runProcess,
-): Promise<InstalledFrontend | null> {
-  const owned = await ownedRoot(root);
-  const frontend = frontendAt(owned);
-  try {
-    const receipt = json(
-      await fs.readFile(
-        path.join(path.dirname(frontend.bundle), 'receipt.json'),
-        'utf8',
-      ),
-    ) as Record<string, unknown>;
-    if (
-      receipt.version !== ESDE_RELEASE.version ||
-      receipt.sha256 !== ESDE_RELEASE.artifact.sha256 ||
-      (await fs.realpath(frontend.bundle)) !== frontend.bundle
-    )
-      return null;
-  } catch {
-    return null;
-  }
-  await verifyFrontend(frontend.bundle, run);
-  return frontend;
-}
-
-/** Remove only stages this installer marked; detach their images first. */
-async function recoverStages(root: string, run: ProcessRunner) {
-  const names = (await fs.readdir(root)).filter((name) =>
-    STAGE_PATTERN.test(name),
-  );
-  // eslint-disable-next-line no-restricted-syntax -- Detach each before removal.
-  for (const name of names) {
-    const staged = path.join(root, name);
-    // eslint-disable-next-line no-await-in-loop
-    const marked = await fs
-      .lstat(path.join(staged, MARKER))
-      .then((stat) => stat.isFile() && !stat.isSymbolicLink())
-      .catch(() => false);
-    if (marked) {
-      // eslint-disable-next-line no-await-in-loop -- Never recurse into a mounted image.
-      await detachStage(staged, run);
-      // eslint-disable-next-line no-await-in-loop
-      await fs.rm(staged, { recursive: true });
-    }
-  }
-}
-
-export async function installFrontend(
-  installRoot: string,
-  options: EsdeInstallOptions,
-): Promise<InstalledFrontend> {
-  if (process.platform !== 'darwin')
-    throw new Error('Installation requires macOS');
-  const run = options.run || runProcess;
-  const download = options.download || downloadPinned;
-  const root = await ownedRoot(installRoot);
-  const existing = await installedFrontend(root, run).catch(() => null);
-  if (existing) return existing;
-  await recoverStages(root, run);
-  const frontend = frontendAt(root);
-  const destination = path.dirname(frontend.bundle);
-  // Repair: a copy our own receipt identifies, but which no longer verifies, is
-  // moved aside and replaced. Folders without our receipt are still preserved.
-  let damaged: string | null = null;
-  if (await installedVersion(root)) {
-    damaged = path.join(root, `.esde-damaged-${Date.now()}`);
-    await fs.rename(destination, damaged);
-  }
-  // Never replace an unknown or partial directory; it is preserved for review.
-  if (
-    await fs.lstat(destination).then(
-      () => true,
-      () => false,
-    )
-  )
-    throw new Error('An incomplete ES-DE installation is preserved');
-  const staged = await fs.mkdtemp(path.join(root, '.esde-stage-'));
-  let mountAttempted = false;
-  let installed = false;
-  try {
-    await fs.writeFile(path.join(staged, MARKER), '', {
-      flag: 'wx',
-      mode: 0o600,
-    });
-    const dmg = path.join(staged, 'download.dmg');
-    const audit = await download(ESDE_RELEASE.artifact, dmg);
-    // The terms are shown to the user before the image is mounted; no answer
-    // is ever given on their behalf.
-    if (!(await options.acceptLicense(await readLicense(dmg, run))))
-      throw new Error(
-        'ES-DE was not installed because its license was declined',
-      );
-    const mount = path.join(staged, 'mount');
-    await fs.mkdir(mount, { mode: 0o700 });
-    mountAttempted = true;
-    const output = await run(
-      '/usr/bin/hdiutil',
-      [
-        'attach',
-        '-readonly',
-        '-nobrowse',
-        '-noautoopen',
-        '-mountpoint',
-        mount,
-        '-plist',
-        dmg,
-      ],
-      'Y\n',
-    );
-    const start = output.indexOf('<?xml');
-    if (start < 0) throw new Error('Disk image could not be mounted');
-    validateMount(
-      await run(
-        '/usr/bin/plutil',
-        ['-convert', 'json', '-o', '-', '-'],
-        output.slice(start),
-      ),
-      mount,
-    );
-    const source = path.join(mount, BUNDLE);
-    await checkBundleLinks(source);
-    await verifyFrontend(source, run);
-    const copy = path.join(staged, BUNDLE);
-    await run('/usr/bin/ditto', [source, copy]);
-    await checkBundleLinks(copy);
-    await verifyFrontend(copy, run);
-    await detachStage(staged, run);
-    mountAttempted = false;
-    await fs.mkdir(destination, { mode: 0o700 });
-    await fs.rename(copy, frontend.bundle);
-    const receipt = path.join(destination, '.receipt.json.tmp');
-    await fs.writeFile(
-      receipt,
-      `${JSON.stringify({ version: ESDE_RELEASE.version, ...audit, licenseAccepted: true }, null, 2)}\n`,
-      { flag: 'wx', mode: 0o600 },
-    );
-    await fs.rename(receipt, path.join(destination, 'receipt.json'));
-    installed = true;
-    return frontend;
-  } finally {
-    if (mountAttempted)
-      mountAttempted = await detachStage(staged, run).then(
-        () => false,
-        () => true,
-      );
-    // Only remove staging once its image is known to be detached.
-    if (!mountAttempted) await fs.rm(staged, { recursive: true, force: true });
-    if (!installed)
-      await fs
-        .rm(destination, { recursive: true, force: true })
-        .catch(() => undefined);
-    // The damaged copy is this app's own unusable bundle, never user data.
-    if (damaged)
-      await fs
-        .rm(damaged, { recursive: true, force: true })
-        .catch(() => undefined);
-  }
-}
+export const readLicense = readImageLicense;
+export const verifyFrontend = (bundle: string, run?: ProcessRunner) =>
+  esde.verify(bundle, run);
+export const { installedVersion } = esde;
+export const frontendHealth = esde.health;
+export const installedFrontend = (root: string, run?: ProcessRunner) =>
+  esde.installed(root, run);
+export const installFrontend = (root: string, options: EsdeInstallOptions) =>
+  esde.install(root, options);

@@ -16,8 +16,13 @@ const policy = {
   urls: [dolphin.manifest.homepage, dolphin.manifest.releasePage],
 };
 
-test('registry exposes only GameCube and rejects unknown components', () => {
-  expect(components).toHaveLength(1);
+test('registry exposes GameCube and PSP, one component per system', () => {
+  expect(components.map((entry) => entry.manifest.id)).toEqual([
+    'dolphin',
+    'ppsspp',
+  ]);
+  const systems = components.flatMap((entry) => entry.manifest.systems);
+  expect(new Set(systems).size).toBe(systems.length);
   expect(dolphin.manifest.systems).toEqual(['gc']);
   expect(() => getComponent('__proto__')).toThrow();
   expect(Object.isFrozen(dolphin.manifest.romExtensions)).toBe(true);
