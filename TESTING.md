@@ -30,6 +30,10 @@ open -n --stderr <log> --env EMULATION_SMOKE_DIR="$TMPDIR/emulation-e2e-XXXXXX" 
 
 Seed a library (`library.json` with device/inode identity) containing only legal fixtures and copy a verified Dolphin install with its receipt. Install ES-DE through the UI; the owner must answer the license sheet. Pass criteria per cycle, from the stderr `console-mode`/`manager-focus` JSON lines plus `lsappinfo front`: `startFocus`, every `gameFocus` and `manager-focus` are `frontmost`, frontend exit 0, playtime persists, ROM hash unchanged, no `~/ES-DE`. Electron ignores background synthetic input, so drive the window in the foreground. Fixtures kept in `$TMPDIR` are purged by macOS after a few days (Dolphin and ES-DE copies lost their Info.plist mid-session). `ditto` preserves the image's original dates, so a fresh install is born already "old"; refreshing access times alone did not prevent a second purge. After every install into a test environment run `find <env> -exec touch {} +` (access and modification times; code signatures are unaffected), and re-verify signatures before reuse. The product installs into Application Support, which is not purged.
 
+## Relaunching the test app
+
+The app enforces a single instance, and its quit guard refuses to quit while an emulator or Console Mode is active. A scripted quit can therefore silently leave the old build running; a new `open -n` then exits immediately. Before every physical test, quit any emulator first, wait until the old process is gone, relaunch, and compare the running process start time (`ps -o lstart`) with the package build time. (On 2026-10-07 one physical PPSSPP test ran against a stale build this way.)
+
 ## Native activation helper
 
 `node .erb/scripts/build-macos-native.js` builds `release/native/activate-app` alongside the console client. `focus.test.ts` exercises its argv contract and, when built, real native refusals (root-owned process, process outside the bundle). The 2026-10-04 manual measurement on macOS 27 activated a background-launched app 6/6 times with Finder or TextEdit frontmost (verified with `lsappinfo front` before and after). This is not yet ES-DE evidence.
