@@ -44,6 +44,8 @@ export interface RuntimeDependencies {
   preflight(): Promise<void>;
   /** Library identity still matches the selected, available library. */
   assertLibrary(root: string): Promise<void>;
+  /** Best effort, before every launch: managed emulator files (e.g. controls). */
+  prepareLaunch?(library: string): Promise<void>;
 }
 /* eslint-enable no-unused-vars */
 
@@ -113,7 +115,11 @@ export class EmulatorRuntime {
   async prepareLibrary(library: string): Promise<void> {
     const directories = this.adapter.paths(library);
     // eslint-disable-next-line no-restricted-syntax -- Parents before children.
-    for (const directory of [directories.roms, directories.user]) {
+    for (const directory of [
+      directories.roms,
+      directories.user,
+      directories.configuration,
+    ]) {
       // eslint-disable-next-line no-await-in-loop
       await fs.mkdir(directory, { recursive: true, mode: 0o755 });
       // eslint-disable-next-line no-await-in-loop
@@ -169,6 +175,7 @@ export class EmulatorRuntime {
       await this.dependencies.assertLibrary(library);
       await this.prepareLibrary(library);
       const rom = await this.validateGame(library, game);
+      await this.dependencies.prepareLaunch?.(library).catch(() => undefined);
       await this.dependencies.assertLibrary(library);
       const plan = this.adapter.planLaunch({
         libraryRoot: library,

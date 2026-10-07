@@ -54,6 +54,7 @@ const controllersStatus: ControllersStatus = {
       motion: true,
     },
   ],
+  steamInput: false,
   stickResponse: 'standard',
   dolphinControls: 'user',
   recommendedAvailable: true,
@@ -432,6 +433,18 @@ describe('Controllers page', () => {
     );
     await waitFor(() =>
       expect(window.mac.useRecommendedControls).toHaveBeenCalledWith(),
+    );
+  });
+
+  it('warns when Steam Input is taking over the controller', async () => {
+    (window.mac.getControllers as jest.Mock).mockResolvedValue({
+      ...controllersStatus,
+      steamInput: true,
+    });
+    render(<MacApp />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Controllers' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Steam is taking over your controller',
     );
   });
 

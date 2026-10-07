@@ -26,6 +26,7 @@ import { ConsoleSession } from './console-session';
 import { EmulatorRuntime, defaultSpawn } from './emulator-runtime';
 import { ppsspp, ppssppApp } from '../components/ppsspp';
 import { ppssppPreflight } from '../components/ppsspp/preflight';
+import { applyManagedControls } from '../components/ppsspp/input';
 import { activateUntilHeld, restoreFocus } from './focus';
 import {
   ESDE_RELEASE,
@@ -37,6 +38,7 @@ import { symbolCSS } from './symbols';
 import { prepareDolphinLibrary } from './dolphin-library';
 import { dolphin } from '../components/dolphin';
 import { readLibrary, selectLibrary, recoverLibrarySettings } from './library';
+import { readProcessExecutables } from './processes';
 import {
   acceptsEmptyArguments,
   acceptsOneOf,
@@ -132,6 +134,17 @@ const ppssppRuntime = new EmulatorRuntime(
   {
     spawn: defaultSpawn,
     preflight: ppssppPreflight(),
+    // PPSSPP 1.20.4's default L/R bindings are unreachable on game controllers.
+    prepareLaunch: async (library) => {
+      const { configuration, user } = ppsspp.paths(library);
+      const result = await applyManagedControls(
+        configuration,
+        path.join(user, '.emulation-workspace-input.json'),
+      );
+      process.stderr.write(
+        `${JSON.stringify({ event: 'ppsspp-input', result: result.files })}\n`,
+      );
+    },
     assertLibrary: async (root) => {
       if ((await availableLibrary()) !== root)
         throw new Error('Library changed or its drive is unavailable');
@@ -238,6 +251,28 @@ const controllerPreferences = path.join(
   'controllers.json',
 );
 const stickResponses = ['standard', 'precise'] as const;
+
+/**
+ * Steam Input can take over a PlayStation controller and expose a virtual Xbox
+ * 360 pad instead; emulators with older SDL then miss the analog sticks
+ * (observed with PPSSPP 1.20.4). Detected as Steam running plus that virtual pad.
+ */
+async function steamInputActive(
+  detected: Awaited<ReturnType<typeof detectControllers>>,
+): Promise<boolean> {
+  const virtualPad = detected.some(
+    (pad) =>
+      pad.vendorID === 0x045e && pad.productID === 0x028e && !pad.transport,
+  );
+  if (!virtualPad) return false;
+  try {
+    return (await readProcessExecutables())
+      .split('\n')
+      .some((line) => /\/steam_osx$/.test(line.trim()));
+  } catch {
+    return false;
+  }
+}
 
 /** The library's Dolphin input files and this app's ownership record. */
 function dolphinInputPaths(library: string) {
@@ -504,6 +539,7 @@ ipcMain.handle(
     }
     return {
       controllers,
+      steamInput: await steamInputActive(detected),
       stickResponse,
       dolphinControls,
       recommendedAvailable: isInputFamily(

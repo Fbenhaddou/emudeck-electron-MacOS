@@ -67,6 +67,8 @@ export interface ControllerSummary {
 
 export interface ControllersStatus {
   controllers: ControllerSummary[];
+  /** Steam is running and has replaced a controller with its virtual pad. */
+  steamInput: boolean;
   stickResponse: 'standard' | 'precise';
   /** The library's Dolphin controls; no-library when none is available. */
   dolphinControls: 'recommended' | 'user' | 'not-set' | 'no-library';

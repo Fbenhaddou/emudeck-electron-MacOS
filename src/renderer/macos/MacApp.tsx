@@ -1102,6 +1102,18 @@ export default function MacApp() {
                           </div>
                         </div>
                       )}
+                      {controllers?.steamInput && (
+                        <div className="row alert" role="alert">
+                          <Caution />
+                          <p>
+                            Steam is taking over your controller, so some
+                            emulators can’t see its analog sticks. Quit Steam
+                            before playing, or turn off Steam Input for
+                            PlayStation controllers in Steam’s Controller
+                            settings.
+                          </p>
+                        </div>
+                      )}
                       {controllers?.controllers.map((pad, index) => (
                         <div
                           className="row"
