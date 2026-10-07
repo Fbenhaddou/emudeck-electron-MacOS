@@ -35,6 +35,8 @@ export interface ConsoleFrontend {
 
 export interface GameRunner {
   readonly isBusy: boolean;
+  /** The emulator exits by itself on the controller exit hold (Dolphin's hotkey). */
+  readonly handlesExitHold?: boolean;
   forceStop(): boolean;
   launchAndWait(
     library: string,
@@ -263,8 +265,22 @@ export class ConsoleSession {
       // Escape hatch: if a game's emulator stops responding, a long hold of the
       // controller exit combination stops that game and returns to the frontend.
       this.exitWatch = deps.watchExitHold(() => {
-        if (this.activeGame && this.activeRunner?.forceStop())
-          report.forcedStops += 1;
+        const game = this.activeGame;
+        const runner = this.activeRunner;
+        if (!game || !runner) return;
+        // Emulators without a native exit hotkey get a polite stop now (a clean
+        // quit for SDL apps such as PPSSPP), forced only if it never exits.
+        if (!runner.handlesExitHold) {
+          if (runner.forceStop()) report.forcedStops += 1;
+          return;
+        }
+        // Dolphin exits by itself on this hold; if the same game is still
+        // running after the grace period, its emulator is stuck: stop it.
+        void deps.delay(3500).then(() => {
+          if (this.activeGame === game && runner.forceStop())
+            report.forcedStops += 1;
+          return undefined;
+        });
       });
       this.current = 'running';
       this.onChange();

@@ -213,7 +213,7 @@ export function consoleDependencies(
       );
     },
     watchExitHold: (onHold) => {
-      const guardian = spawn(paths.guardianHelper, ['--hold-seconds', '5'], {
+      const guardian = spawn(paths.guardianHelper, ['--hold-seconds', '1.5'], {
         shell: false,
         stdio: ['pipe', 'pipe', 'ignore'],
       });

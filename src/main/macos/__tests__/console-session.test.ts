@@ -39,6 +39,7 @@ function setup(overrides: Partial<ConsoleDependencies> = {}) {
   const watch = { stop: jest.fn() };
   const runner = {
     isBusy: false,
+    handlesExitHold: true,
     forceStop: jest.fn(() => true),
     launchAndWait: jest.fn(async () => ({ code: 0, signal: null })),
   };
@@ -254,6 +255,8 @@ describe('ConsoleSession', () => {
     const game = launch()('a'.repeat(32));
     await flush();
     hold();
+    await flush();
+    // Dolphin's own hotkey had 3.5 s to end the game; it is still running.
     expect(runner.forceStop).toHaveBeenCalledTimes(1);
     finishGame({ code: 0, signal: null });
     await game;
@@ -298,6 +301,36 @@ describe('ConsoleSession', () => {
     expect(runner.forceStop).not.toHaveBeenCalled();
     finishGame({ code: 0, signal: null });
     await game;
+  });
+
+  it('does not stop a Dolphin game that exited by itself during the grace period', async () => {
+    let finishGame!: (value: { code: number; signal: null }) => void;
+    let resumeGrace!: () => void;
+    const { session, runner, hold, launch } = setup({
+      // Only the 3.5 s exit grace period is held open; focus retries pass through.
+      delay: jest.fn((milliseconds: number) =>
+        milliseconds === 3500
+          ? new Promise<void>((resolve) => {
+              resumeGrace = resolve;
+            })
+          : Promise.resolve(),
+      ),
+    });
+    runner.launchAndWait.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishGame = resolve;
+        }),
+    );
+    await session.enter('/lib');
+    const game = launch()('a'.repeat(32));
+    await flush();
+    hold();
+    finishGame({ code: 0, signal: null });
+    await game;
+    resumeGrace();
+    await flush();
+    expect(runner.forceStop).not.toHaveBeenCalled();
   });
 
   it('leaves out systems without an installed emulator', async () => {

@@ -34,6 +34,9 @@ export interface DolphinExit {
 
 /** One component vertical slice; installation never writes into the portable library. */
 export class ComponentManager {
+  /** Dolphin's managed hotkey exits the game on the controller exit hold. */
+  readonly handlesExitHold = true;
+
   private operation: DolphinStatus['operation'] = 'idle';
 
   private child: ChildProcess | null = null;
