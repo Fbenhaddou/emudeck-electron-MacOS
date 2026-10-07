@@ -252,6 +252,14 @@ describe('component manager operation and installation boundaries', () => {
       root,
       path.join(root, 'roms/gc/legal.dol'),
     );
+    // Launch does real file I/O first; wait for the spawn, not a fixed delay.
+    for (
+      let i = 0;
+      i < 500 && (deps.spawn as jest.Mock).mock.calls.length === 0;
+      i += 1
+    )
+      // eslint-disable-next-line no-await-in-loop -- Bounded poll.
+      await wait(2);
     await wait(5);
     return { manager, kill, finished };
   }

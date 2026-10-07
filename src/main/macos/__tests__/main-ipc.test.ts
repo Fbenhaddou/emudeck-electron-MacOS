@@ -27,6 +27,9 @@ const channels = [
   'mac:use-recommended-controls',
   'mac:install-emulator',
   'mac:play-emulator',
+  'mac:library-overview',
+  'mac:add-firmware',
+  'mac:reveal-system',
 ];
 
 function createFixture() {
@@ -289,6 +292,12 @@ describe('actual macOS main IPC and quit boundaries', () => {
     ['mac:install-emulator', ['PPSSPP']],
     ['mac:play-emulator', ['ppsspp', '/tmp/game.iso']],
     ['mac:play-emulator', ['__proto__']],
+    ['mac:add-firmware', []],
+    ['mac:add-firmware', ['../IPL.bin']],
+    ['mac:add-firmware', ['gc-ipl', '/tmp/IPL.bin']],
+    ['mac:reveal-system', ['psx']],
+    ['mac:reveal-system', ['gc', 'psp']],
+    ['mac:reveal-system', [{ id: 'gc' }]],
   ])(
     'accepts only a known emulator id literal: %s %p',
     async (channel, args) => {

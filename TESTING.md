@@ -85,3 +85,7 @@ Actual strict codesign refused the altered staging resource; the installer detac
 First attempt xLQILk is preserved with `ready:false`: an extra diagnostic assertion incorrectly required a particular stderr filename after the actual codesign refusal. Its old installation/library and mount cleanup were independently rechecked. The corrected utility ran in a new private runtime; no failed report was overwritten or counted as a pass.
 
 The final unsigned DMG also passed `hdiutil verify` image checksums. Mounted image contents, fresh-user installation and public distribution trust remain separate gates.
+
+## Firmware import (owner-run)
+
+Firmware tests use synthetic random bytes with a declared CRC32; no proprietary file is ever stored in the repository. To check a real import, the owner uses a GameCube IPL they dumped from their own console: Firmware › GameCube IPL › Add…, then confirm the row reads "Added and recognized: <region>", the original file is unchanged, and the library contains `emulators/dolphin/User/GC/<region>/IPL.bin`. Adding an unrelated file must show "not a known good … dump" and change nothing. Replacing a different existing file must leave `IPL.bin.before-<timestamp>` beside it.

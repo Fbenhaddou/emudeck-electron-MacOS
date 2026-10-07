@@ -9,6 +9,8 @@ import type { KeyboardEvent, ReactNode } from 'react';
 import type {
   ControllersStatus,
   ControllerSummary,
+  FirmwareSummary,
+  LibraryOverview,
   MacAPI,
   MacStatus,
 } from '../../shared/macos';
@@ -21,6 +23,7 @@ declare global {
 type Page =
   | 'Library'
   | 'Emulators'
+  | 'Firmware'
   | 'Console Mode'
   | 'Controllers'
   | 'This Mac'
@@ -32,11 +35,12 @@ type Action =
   | 'choosing-game'
   | 'resetting'
   | 'installing-console'
-  | 'opening-console';
+  | 'opening-console'
+  | 'adding-firmware';
 const sections: { title: string; pages: Page[] }[] = [
   {
     title: 'Workspace',
-    pages: ['Library', 'Emulators', 'Console Mode', 'Controllers'],
+    pages: ['Library', 'Emulators', 'Firmware', 'Console Mode', 'Controllers'],
   },
   { title: 'System', pages: ['This Mac', 'Development'] },
 ];
@@ -44,6 +48,8 @@ const pages = sections.flatMap((section) => section.pages);
 const icons: Record<Page, string> = {
   Library: 'M3 7V5h6l2 2h10v13H3V7Z',
   Emulators: 'M6 7h12l3 10-3 2-4-4h-4l-4 4-3-2L6 7Zm1 4h4m-2-2v4m7-3h.1m2 2h.1',
+  Firmware:
+    'M7 5h10v14H7V5Zm3 3h4v4h-4V8ZM4 8h3M4 12h3M4 16h3m10-8h3m-3 4h3m-3 4h3',
   'Console Mode':
     'M4 11V8a3 3 0 0 1 3-3h10a3 3 0 0 1 3 3v3M2 13a2 2 0 0 1 4 0v2h12v-2a2 2 0 0 1 4 0v5H2v-5Zm2 5v2m16-2v2',
   Controllers:
@@ -55,6 +61,7 @@ const icons: Record<Page, string> = {
 const symbolKeys: Record<Page, string> = {
   Library: 'library',
   Emulators: 'emulators',
+  Firmware: 'firmware',
   'Console Mode': 'console',
   Controllers: 'controllers',
   'This Mac': 'this-mac',
@@ -214,6 +221,19 @@ function describeController(pad: ControllerSummary): string {
   return parts.join(' · ');
 }
 
+const firmwareText: Record<FirmwareSummary['state'], string> = {
+  missing: 'Not added.',
+  recognized: 'Added and recognized',
+  unrecognized:
+    'A file is in place but is not a known good dump. Add your own dump to replace it; the current file is kept as a backup.',
+};
+
+function describeFirmware(item: FirmwareSummary): string {
+  if (item.state === 'recognized')
+    return `${firmwareText.recognized}: ${item.detail}.`;
+  return firmwareText[item.state];
+}
+
 const controlsText: Record<ControllersStatus['dolphinControls'], string> = {
   recommended: 'Using the recommended controls for your controller.',
   user: 'Using this library’s own controller settings.',
@@ -279,6 +299,7 @@ export default function MacApp() {
   const [controllers, setControllers] = useState<ControllersStatus | null>(
     null,
   );
+  const [overview, setOverview] = useState<LibraryOverview | null>(null);
   const [narrow, setNarrow] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const mounted = useRef(true);
@@ -366,6 +387,30 @@ export default function MacApp() {
       /* The page keeps its last known state. */
     }
   }, []);
+  const refreshOverview = useCallback(async () => {
+    try {
+      const next = await window.mac.getLibraryOverview();
+      if (mounted.current) setOverview(next);
+    } catch {
+      /* The page keeps its last known state. */
+    }
+  }, []);
+  const libraryPath = status?.library?.path;
+  const libraryAvailable = status?.library?.available;
+  const installedEmulators = `${status?.dolphin.version}|${status?.emulators
+    ?.map((item) => item.version)
+    .join()}`;
+  useEffect(() => {
+    // Counts change when games are added in Finder; re-read on every visit.
+    if (page !== 'Library' && page !== 'Firmware') return;
+    void refreshOverview();
+  }, [
+    page,
+    libraryPath,
+    libraryAvailable,
+    installedEmulators,
+    refreshOverview,
+  ]);
   useEffect(() => {
     // Only while visible: plugging in a controller or battery changes appear live.
     if (page !== 'Controllers') return undefined;
@@ -461,6 +506,20 @@ export default function MacApp() {
     } finally {
       await refreshAfterAction();
       setAction(null);
+    }
+  };
+  const addFirmware = async (id: string) => {
+    await operate('adding-firmware', () => window.mac.addFirmware(id));
+    await refreshOverview();
+  };
+  const revealSystem = async (id: string) => {
+    try {
+      const result = await window.mac.revealSystem(id);
+      if (!result.ok) setError(result.error);
+    } catch {
+      setError(
+        'Finder could not open the folder. Reconnect your library drive and try again.',
+      );
     }
   };
   const select = (item: Page) => {
@@ -782,6 +841,130 @@ export default function MacApp() {
                         Next, open Emulators to install Dolphin for GameCube.
                       </p>
                     )}
+                    {overview?.available && overview.systems.length > 0 && (
+                      <>
+                        <h2 className="group-heading">Systems</h2>
+                        <section className="group" aria-label="Systems">
+                          {overview.systems.map((system) => (
+                            <div className="row" key={system.id}>
+                              <div className="row-text">
+                                <h3>
+                                  <span className="title">{system.name}</span>
+                                </h3>
+                                <p>
+                                  {system.games === 1
+                                    ? '1 game'
+                                    : `${system.games} games`}
+                                  {' · '}
+                                  {system.installed
+                                    ? `Plays with ${system.emulator}`
+                                    : `Install ${system.emulator} in Emulators to play`}
+                                </p>
+                                <p className="path">{system.folder}</p>
+                              </div>
+                              <button
+                                type="button"
+                                aria-label={`Show ${system.name} games folder in Finder`}
+                                onClick={() => {
+                                  void revealSystem(system.id);
+                                }}
+                              >
+                                Show in Finder
+                              </button>
+                            </div>
+                          ))}
+                        </section>
+                        <p className="footnote">
+                          Put games directly in each system’s folder. Counts
+                          update when you return to this page.
+                        </p>
+                      </>
+                    )}
+                  </>
+                )}
+                {page === 'Firmware' && (
+                  <>
+                    <Hero page="Firmware" tint="orange" title="Firmware">
+                      Some emulators can use system files dumped from your own
+                      console. Each file is checked against known good dumps and
+                      copied into your library. Nothing is downloaded.
+                    </Hero>
+                    {!overview && (
+                      <section className="group" aria-label="System files">
+                        <div className="row progress" role="status">
+                          <Spinner />
+                          <p>Checking your library…</p>
+                        </div>
+                      </section>
+                    )}
+                    {overview && !overview.available && (
+                      <section className="group" aria-label="System files">
+                        <div className="row">
+                          <div className="row-text">
+                            <h3>No library available</h3>
+                            <p>Choose an available library in Library first.</p>
+                          </div>
+                        </div>
+                      </section>
+                    )}
+                    {overview?.available && (
+                      <section
+                        className="group"
+                        aria-label="System files"
+                        aria-busy={action === 'adding-firmware'}
+                      >
+                        {overview.firmware.map((item) => (
+                          <div className="row" key={item.id}>
+                            <div className="row-text">
+                              <h3>
+                                <span
+                                  className={`indicator ${item.state === 'recognized' ? 'on' : 'off'}`}
+                                  aria-hidden="true"
+                                />
+                                <span className="title">{item.title}</span>
+                                <span className="tag">
+                                  {item.required ? 'Required' : 'Optional'}
+                                </span>
+                              </h3>
+                              <p>{item.purpose}</p>
+                              <p>{describeFirmware(item)}</p>
+                            </div>
+                            <button
+                              type="button"
+                              disabled={emulatorBusy || consoleBusy}
+                              aria-label={`${item.state === 'missing' ? 'Add' : 'Replace'} ${item.title}`}
+                              onClick={() => {
+                                void addFirmware(item.id);
+                              }}
+                            >
+                              {item.state === 'missing' ? 'Add…' : 'Replace…'}
+                            </button>
+                          </div>
+                        ))}
+                        {overview.systems
+                          .filter(
+                            (system) =>
+                              !overview.firmware.some(
+                                (item) => item.system === system.id,
+                              ),
+                          )
+                          .map((system) => (
+                            <div className="row" key={system.id}>
+                              <div className="row-text">
+                                <h3>
+                                  <span className="title">{system.name}</span>
+                                </h3>
+                                <p>{system.emulator} needs no system files.</p>
+                              </div>
+                            </div>
+                          ))}
+                      </section>
+                    )}
+                    <p className="footnote">
+                      Use only files you dumped from hardware you own. Your
+                      original file is never changed, and a file it replaces is
+                      kept as a dated backup.
+                    </p>
                   </>
                 )}
                 {page === 'Emulators' && (

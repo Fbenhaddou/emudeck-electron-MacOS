@@ -17,11 +17,17 @@ import { pathToFileURL } from 'url';
 import type {
   ActionResult,
   ControllersStatus,
+  LibraryOverview,
   LibraryResult,
   MacStatus,
 } from '../../shared/macos';
 import { setWindowZoom, stepZoom } from './chrome';
-import { consoleDependencies, privateDirectory } from './console-host';
+import {
+  consoleDependencies,
+  listGames,
+  privateDirectory,
+} from './console-host';
+import type { ConsoleEmulator } from './console-host';
 import { ConsoleSession } from './console-session';
 import { EmulatorRuntime, defaultSpawn } from './emulator-runtime';
 import { ppsspp, ppssppApp } from '../components/ppsspp';
@@ -39,6 +45,7 @@ import { prepareDolphinLibrary } from './dolphin-library';
 import { dolphin } from '../components/dolphin';
 import { readLibrary, selectLibrary, recoverLibrarySettings } from './library';
 import { readProcessExecutables } from './processes';
+import { FirmwareError, firmwareStatus, importFirmware } from './firmware';
 import {
   acceptsEmptyArguments,
   acceptsOneOf,
@@ -160,6 +167,24 @@ const pinnedEmulators = { ppsspp: ppssppRuntime } as const;
 const pinnedEmulatorIDs = Object.keys(pinnedEmulators) as Array<
   keyof typeof pinnedEmulators
 >;
+/** Installed-emulator systems, shared by Console Mode and the library overview. */
+const consoleEmulators: ConsoleEmulator[] = [
+  {
+    system: { id: 'gc', fullname: 'Nintendo GameCube', label: 'Dolphin' },
+    adapter: dolphin,
+    installed: async () => Boolean((await manager.status()).version),
+  },
+  {
+    system: {
+      id: 'psp',
+      fullname: 'Sony PlayStation Portable',
+      label: 'PPSSPP',
+    },
+    adapter: ppsspp,
+    installed: async () =>
+      (await ppssppRuntime.status()).health === 'installed',
+  },
+];
 consoleSession = new ConsoleSession(
   path.join(consoleRoot, 'esde-home'),
   { gc: manager, psp: ppssppRuntime },
@@ -200,23 +225,7 @@ consoleSession = new ConsoleSession(
         );
       },
     },
-    [
-      {
-        system: { id: 'gc', fullname: 'Nintendo GameCube', label: 'Dolphin' },
-        adapter: dolphin,
-        installed: async () => Boolean((await manager.status()).version),
-      },
-      {
-        system: {
-          id: 'psp',
-          fullname: 'Sony PlayStation Portable',
-          label: 'PPSSPP',
-        },
-        adapter: ppsspp,
-        installed: async () =>
-          (await ppssppRuntime.status()).health === 'installed',
-      },
-    ],
+    consoleEmulators,
   ),
   // eslint-disable-next-line no-use-before-define -- Hoisted; runs after startup.
   () => {
@@ -708,6 +717,121 @@ ipcMain.handle(
       };
     } finally {
       choosingLibrary = false;
+    }
+  },
+);
+const firmwareRequirements = consoleEmulators.flatMap(
+  (emulator) => emulator.adapter.firmware || [],
+);
+const firmwareIDs = firmwareRequirements.map((requirement) => requirement.id);
+const systemIDs = consoleEmulators.map((emulator) => emulator.system.id);
+const systemNames: Record<string, string> = { gc: 'GameCube', psp: 'PSP' };
+
+ipcMain.handle(
+  'mac:library-overview',
+  async (event, ...args): Promise<LibraryOverview> => {
+    validateCaller(event, args);
+    let library: string;
+    try {
+      library = await availableLibrary();
+    } catch {
+      return { available: false, systems: [], firmware: [] };
+    }
+    const games = await listGames(library, consoleEmulators);
+    const systems = await Promise.all(
+      consoleEmulators.map(async (emulator) => ({
+        id: emulator.system.id,
+        name: systemNames[emulator.system.id] || emulator.system.fullname,
+        emulator: emulator.system.label,
+        installed: await emulator.installed().catch(() => false),
+        games: games.filter((game) => game.system === emulator.system.id)
+          .length,
+        folder: path.relative(library, emulator.adapter.paths(library).roms),
+      })),
+    );
+    const firmware = (
+      await firmwareStatus(
+        library,
+        consoleEmulators.map((emulator) => emulator.adapter),
+      ).catch(() => [])
+    ).map((item) => ({
+      id: item.id,
+      system: item.system,
+      title: item.title,
+      purpose: item.purpose,
+      required: item.required,
+      state: item.state,
+      detail: item.detail,
+    }));
+    return { available: true, systems, firmware };
+  },
+);
+ipcMain.handle(
+  'mac:add-firmware',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args, (values) => acceptsOneOf(values, firmwareIDs));
+    const requirement = firmwareRequirements.find(
+      (candidate) => candidate.id === args[0],
+    )!;
+    if (operationBusy())
+      return {
+        ok: false,
+        error: 'Finish the current operation or quit the game first.',
+      };
+    choosingLibrary = true;
+    try {
+      const library = await availableLibrary();
+      const choice = await dialog.showOpenDialog(mainWindow!, {
+        title: `Choose Your ${requirement.title} Dump`,
+        message: `Choose a ${requirement.title} file dumped from your own console. It is checked against known good dumps and copied into your library; the original stays where it is.`,
+        buttonLabel: 'Add',
+        properties: ['openFile'],
+      });
+      if (choice.canceled) return { ok: true };
+      if (
+        choice.filePaths.length !== 1 ||
+        (await availableLibrary()) !== library
+      )
+        throw new Error('Library changed');
+      await importFirmware(library, requirement, choice.filePaths[0]);
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error:
+          error instanceof FirmwareError
+            ? error.message
+            : 'The file could not be added. Check that your library drive is connected. Nothing was changed.',
+      };
+    } finally {
+      choosingLibrary = false;
+    }
+  },
+);
+ipcMain.handle(
+  'mac:reveal-system',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args, (values) => acceptsOneOf(values, systemIDs));
+    try {
+      const library = await availableLibrary();
+      const emulator = consoleEmulators.find(
+        (candidate) => candidate.system.id === args[0],
+      )!;
+      const folder = emulator.adapter.paths(library).roms;
+      await fs.mkdir(folder, { recursive: true, mode: 0o755 });
+      const stat = await fs.lstat(folder);
+      if (!stat.isDirectory() || stat.isSymbolicLink())
+        throw new Error('Not a real folder');
+      const failure = await shell.openPath(folder);
+      return failure
+        ? { ok: false, error: 'Finder could not open the folder.' }
+        : { ok: true };
+    } catch {
+      return {
+        ok: false,
+        error:
+          'The folder could not be opened. Reconnect your library drive and try again.',
+      };
     }
   },
 );

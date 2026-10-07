@@ -8,7 +8,11 @@ import {
   waitFor,
 } from '@testing-library/react';
 import MacApp from '../MacApp';
-import type { ControllersStatus, MacStatus } from '../../../shared/macos';
+import type {
+  ControllersStatus,
+  LibraryOverview,
+  MacStatus,
+} from '../../../shared/macos';
 
 const status: MacStatus = {
   console: {
@@ -59,6 +63,38 @@ const controllersStatus: ControllersStatus = {
   dolphinControls: 'user',
   recommendedAvailable: true,
 };
+const overview: LibraryOverview = {
+  available: true,
+  systems: [
+    {
+      id: 'gc',
+      name: 'GameCube',
+      emulator: 'Dolphin',
+      installed: true,
+      games: 1,
+      folder: 'roms/gc',
+    },
+    {
+      id: 'psp',
+      name: 'PSP',
+      emulator: 'PPSSPP',
+      installed: false,
+      games: 3,
+      folder: 'roms/psp',
+    },
+  ],
+  firmware: [
+    {
+      id: 'gc-ipl',
+      system: 'gc',
+      title: 'GameCube IPL',
+      purpose: 'The GameCube’s startup software.',
+      required: false,
+      state: 'missing',
+      detail: null,
+    },
+  ],
+};
 let refreshFromMenu: () => void;
 let unsubscribeRefresh: jest.Mock;
 beforeEach(() => {
@@ -84,6 +120,9 @@ beforeEach(() => {
       .fn()
       .mockResolvedValue({ ok: false, cancelled: true, error: 'Cancelled' }),
     revealLibrary: jest.fn().mockResolvedValue({ ok: true }),
+    getLibraryOverview: jest.fn(async () => overview),
+    addFirmware: jest.fn(async () => ({ ok: true as const })),
+    revealSystem: jest.fn(async () => ({ ok: true as const })),
   };
 });
 afterEach(() => {
@@ -507,5 +546,91 @@ describe('PPSSPP on the Emulators page', () => {
       ],
     });
     expect(screen.getByRole('button', { name: 'Repair PPSSPP' })).toBeEnabled();
+  });
+});
+
+describe('library systems and firmware', () => {
+  const library = { path: '/Volumes/Games', available: true };
+
+  it('lists each system with its game count and opens its folder by id', async () => {
+    (window.mac.getStatus as jest.Mock).mockResolvedValue({
+      ...status,
+      library,
+    });
+    render(<MacApp />);
+    expect(
+      await screen.findByText('1 game · Plays with Dolphin'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('3 games · Install PPSSPP in Emulators to play'),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Show PSP games folder in Finder',
+      }),
+    );
+    await waitFor(() =>
+      expect(window.mac.revealSystem).toHaveBeenCalledWith('psp'),
+    );
+  });
+
+  it('adds firmware by its declared id and shows the recognized dump', async () => {
+    (window.mac.getStatus as jest.Mock).mockResolvedValue({
+      ...status,
+      library,
+    });
+    render(<MacApp />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Firmware' }));
+    expect(await screen.findByText('Optional')).toBeInTheDocument();
+    expect(
+      screen.getByText('PPSSPP needs no system files.'),
+    ).toBeInTheDocument();
+    (window.mac.getLibraryOverview as jest.Mock).mockResolvedValue({
+      ...overview,
+      firmware: [
+        { ...overview.firmware[0], state: 'recognized', detail: 'NTSC 1.0' },
+      ],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add GameCube IPL' }));
+    await waitFor(() =>
+      expect(window.mac.addFirmware).toHaveBeenCalledWith('gc-ipl'),
+    );
+    expect(
+      await screen.findByText('Added and recognized: NTSC 1.0.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('button', { name: 'Replace GameCube IPL' }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows a refused dump as an alert without changing the row', async () => {
+    (window.mac.getStatus as jest.Mock).mockResolvedValue({
+      ...status,
+      library,
+    });
+    (window.mac.addFirmware as jest.Mock).mockResolvedValue({
+      ok: false,
+      error:
+        'This file is not a known good GameCube IPL dump. Nothing was copied.',
+    });
+    render(<MacApp />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Firmware' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Add GameCube IPL' }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'not a known good GameCube IPL dump',
+    );
+  });
+
+  it('asks for a library before managing firmware', async () => {
+    (window.mac.getLibraryOverview as jest.Mock).mockResolvedValue({
+      available: false,
+      systems: [],
+      firmware: [],
+    });
+    render(<MacApp />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Firmware' }));
+    expect(await screen.findByText('No library available')).toBeInTheDocument();
   });
 });

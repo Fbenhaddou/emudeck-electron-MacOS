@@ -78,9 +78,11 @@ async function run() {
   }
   const preferences = report.webPreferences || {};
   const bridgeMethods = [
+    'addFirmware',
     'chooseLibrary',
     'enterConsole',
         'getControllers',
+    'getLibraryOverview',
     'getStatus',
     'installConsole',
     'installDolphin',
@@ -91,6 +93,7 @@ async function run() {
     'recoverLibrarySettings',
     'resetDolphin',
     'revealLibrary',
+    'revealSystem',
         'setStickResponse',
         'useRecommendedControls',
   ];
@@ -98,6 +101,7 @@ async function run() {
     ...[
       'window',
       'page-emulators',
+      'page-firmware',
       'page-console-mode',
       'page-controllers',
       'page-this-mac',
@@ -106,6 +110,7 @@ async function run() {
       'library-disconnected',
       'library-error',
       'emulators-library',
+      'firmware-library',
       'emulators-installed',
       'emulators-advanced',
       'console-ready',

@@ -23,14 +23,16 @@ describe('actual frozen macOS preload bridge', () => {
     });
   });
 
-  it('exposes only fifteen fixed methods and no generic IPC primitive', () => {
+  it('exposes only eighteen fixed methods and no generic IPC primitive', () => {
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     expect(exposeInMainWorld).toHaveBeenCalledWith('mac', api);
     expect(Object.isFrozen(api)).toBe(true);
     expect(Object.keys(api).sort()).toEqual([
+      'addFirmware',
       'chooseLibrary',
       'enterConsole',
       'getControllers',
+      'getLibraryOverview',
       'getStatus',
       'installConsole',
       'installDolphin',
@@ -41,6 +43,7 @@ describe('actual frozen macOS preload bridge', () => {
       'recoverLibrarySettings',
       'resetDolphin',
       'revealLibrary',
+      'revealSystem',
       'setStickResponse',
       'useRecommendedControls',
     ]);
@@ -58,6 +61,7 @@ describe('actual frozen macOS preload bridge', () => {
     ['enterConsole', 'mac:enter-console'],
     ['getControllers', 'mac:controllers'],
     ['useRecommendedControls', 'mac:use-recommended-controls'],
+    ['getLibraryOverview', 'mac:library-overview'],
   ])('does not forward renderer arguments from %s', async (method, channel) => {
     const call = api[method as Exclude<keyof MacAPI, 'onRefreshStatus'>] as (
       ...args: unknown[]
@@ -77,6 +81,18 @@ describe('actual frozen macOS preload bridge', () => {
     await call('ppsspp', '/Applications/Other.app', 'extra');
     expect(ipc.invoke).toHaveBeenCalledTimes(1);
     expect(ipc.invoke).toHaveBeenCalledWith(channel, 'ppsspp');
+  });
+
+  it.each([
+    ['addFirmware', 'mac:add-firmware', 'gc-ipl'],
+    ['revealSystem', 'mac:reveal-system', 'gc'],
+  ])('forwards exactly one id from %s', async (method, channel, id) => {
+    const call = api[method as 'addFirmware'] as unknown as (
+      ...args: unknown[]
+    ) => Promise<unknown>;
+    await call(id, '/Users/someone/IPL.bin', 'extra');
+    expect(ipc.invoke).toHaveBeenCalledTimes(1);
+    expect(ipc.invoke).toHaveBeenCalledWith(channel, id);
   });
 
   it('forwards exactly one value for stick response on its fixed channel', async () => {

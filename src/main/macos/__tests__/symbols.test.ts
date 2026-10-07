@@ -22,6 +22,7 @@ describe('symbolCSS', () => {
       'square.stack.3d.up',
       'gamecontroller',
       'sofa',
+      'memorychip',
       'display',
       'chevron.left.forwardslash.chevron.right',
       'arrow.clockwise',
@@ -30,6 +31,7 @@ describe('symbolCSS', () => {
       'square.stack.3d.up.fill',
       'gamecontroller.fill',
       'sofa.fill',
+      'memorychip.fill',
       'display',
       'chevron.left.forwardslash.chevron.right',
     ]);

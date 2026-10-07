@@ -76,6 +76,33 @@ export interface ControllersStatus {
   recommendedAvailable: boolean;
 }
 
+export interface LibrarySystem {
+  id: string;
+  name: string;
+  emulator: string;
+  installed: boolean;
+  games: number;
+  /** Library-relative games folder, e.g. 'roms/gc'. */
+  folder: string;
+}
+
+export interface FirmwareSummary {
+  id: string;
+  system: string;
+  title: string;
+  purpose: string;
+  required: boolean;
+  state: 'missing' | 'recognized' | 'unrecognized';
+  /** Recognized dump label. */
+  detail: string | null;
+}
+
+export interface LibraryOverview {
+  available: boolean;
+  systems: LibrarySystem[];
+  firmware: FirmwareSummary[];
+}
+
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type LibraryResult =
   | { ok: true; library: LibraryInfo }
@@ -97,4 +124,7 @@ export interface MacAPI {
   useRecommendedControls(): Promise<ActionResult>;
   installEmulator(id: PinnedEmulatorID): Promise<ActionResult>;
   playEmulator(id: PinnedEmulatorID): Promise<ActionResult>;
+  getLibraryOverview(): Promise<LibraryOverview>;
+  addFirmware(id: string): Promise<ActionResult>;
+  revealSystem(id: string): Promise<ActionResult>;
 }

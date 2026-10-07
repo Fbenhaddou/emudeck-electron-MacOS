@@ -379,9 +379,11 @@ export default class SmokeHarness {
       callbackTypeRejected: boolean;
     };
     const expectedMethods = [
+      'addFirmware',
       'chooseLibrary',
       'enterConsole',
       'getControllers',
+      'getLibraryOverview',
       'getStatus',
       'installConsole',
       'installDolphin',
@@ -392,6 +394,7 @@ export default class SmokeHarness {
       'recoverLibrarySettings',
       'resetDolphin',
       'revealLibrary',
+      'revealSystem',
       'setStickResponse',
       'useRecommendedControls',
     ];
@@ -408,6 +411,7 @@ export default class SmokeHarness {
     // eslint-disable-next-line no-restricted-syntax -- Navigate the same real renderer in sequence.
     for (const page of [
       'Emulators',
+      'Firmware',
       'Console Mode',
       'Controllers',
       'This Mac',
@@ -441,6 +445,11 @@ export default class SmokeHarness {
       throw new Error(
         'Selected fixture library was not available through the real status service.',
       );
+    await this.refresh(
+      window,
+      `document.querySelector('[aria-label="Systems"]')?.textContent.includes('0 games')`,
+      'library systems overview',
+    );
     await this.appearances(
       window,
       'library-selected',
@@ -451,6 +460,17 @@ export default class SmokeHarness {
       window,
       'emulators-library',
       'Emulators / library selected',
+    );
+    await this.navigate(window, 'Firmware');
+    await this.refresh(
+      window,
+      `document.querySelector('main')?.textContent.includes('GameCube IPL')`,
+      'firmware overview',
+    );
+    await this.appearances(
+      window,
+      'firmware-library',
+      'Firmware / library selected / nothing added',
     );
 
     await fs.rename(fixtureLibrary, `${fixtureLibrary} disconnected`);

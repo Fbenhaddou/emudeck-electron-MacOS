@@ -593,3 +593,26 @@ dd {
     --control-edge: light-dark(#00000080, #ffffff80);
   }
 }
+
+/* Inset-grouped section header, as in System Settings. */
+.group-heading {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--label);
+  padding: 0 12px;
+  margin: 20px 0 6px;
+}
+.group-heading + .group {
+  margin-top: 0;
+}
+/* Small capsule status label beside a row title. */
+.tag {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--secondary);
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  padding: 0 4px;
+  line-height: 14px;
+  flex-shrink: 0;
+}
