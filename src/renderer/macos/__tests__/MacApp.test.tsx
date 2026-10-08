@@ -692,7 +692,10 @@ describe('Saves page', () => {
 
   it('lists each system with its backups and why they were made', async () => {
     const gamecube = await openSaves();
-    expect(gamecube).toHaveTextContent('Dolphin');
+    expect(
+      screen.getByRole('heading', { name: 'GameCube · Dolphin' }),
+    ).toBeInTheDocument();
+    expect(gamecube).toHaveTextContent('1 backup');
     expect(gamecube).toHaveTextContent('Before resetting settings');
     expect(gamecube).toHaveTextContent('3 files · 12 KB');
     expect(screen.getByRole('region', { name: 'PSP saves' })).toHaveTextContent(
@@ -728,5 +731,33 @@ describe('Saves page', () => {
     await screen.findByRole('button', { name: 'Choose Folder…' });
     fireEvent.click(screen.getByRole('button', { name: 'Saves' }));
     expect(await screen.findByText('No library available')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Go to Library' }));
+    expect(
+      await screen.findByRole('button', { name: 'Choose Folder…' }),
+    ).toBeInTheDocument();
+  });
+
+  it('shows older backups only on request', async () => {
+    const many = Array.from({ length: 7 }, (_, index) => ({
+      id: `2026-09-0${index + 1}T10-00-00-000Z-daily`,
+      reason: 'daily' as const,
+      created: `2026-09-0${index + 1}T10:00:00.000Z`,
+      files: 1,
+      bytes: 10,
+    }));
+    window.mac.getSaves = jest.fn(async () => ({
+      available: true,
+      systems: [{ ...savesOverview.systems[0], snapshots: many }],
+    }));
+    const gamecube = await openSaves();
+    expect(
+      gamecube.querySelectorAll('button[aria-label^="Restore"]'),
+    ).toHaveLength(5);
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show All Backups (7)' }),
+    );
+    expect(
+      gamecube.querySelectorAll('button[aria-label^="Restore"]'),
+    ).toHaveLength(7);
   });
 });

@@ -464,6 +464,7 @@ export default function MacApp() {
                     }}
                     saves={saves}
                     revealSaves={revealSaves}
+                    goToLibrary={() => select('Library')}
                   />
                 )}
                 {page === 'Emulators' && <EmulatorsPage {...props} />}
