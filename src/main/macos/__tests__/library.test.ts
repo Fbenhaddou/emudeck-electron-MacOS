@@ -161,3 +161,147 @@ describe('library persistence preserves user data', () => {
     expect(await fs.readFile(`${statePath}.original`, 'utf8')).toBe(original);
   });
 });
+
+describe('libraries on external drives', () => {
+  let root: string;
+  let volumes: string;
+  let statePath: string;
+  // Fake mounted volumes: mount path → UUID (null for a network share).
+  let mounted: Map<string, string | null>;
+  const UUID_A = '50668704-0F96-3B05-9D34-3A5F162B7DC3';
+  const UUID_B = '3D2075BB-2765-4EFD-A617-CD1EE7B60A4B';
+  const environment = () => ({
+    volumesRoot: volumes,
+    probe: async (mount: string) => mounted.get(mount) ?? null,
+  });
+  async function mount(name: string, uuid: string | null, folder = 'Games') {
+    const point = path.join(volumes, name);
+    await fs.mkdir(path.join(point, folder), { recursive: true });
+    mounted.set(point, uuid);
+    return point;
+  }
+  async function unplug(name: string) {
+    const point = path.join(volumes, name);
+    await fs.rename(point, path.join(root, `unplugged-${name}`));
+    mounted.delete(point);
+  }
+  async function replug(name: string, as: string, uuid: string) {
+    const point = path.join(volumes, as);
+    await fs.rename(path.join(root, `unplugged-${name}`), point);
+    mounted.set(point, uuid);
+  }
+
+  beforeEach(async () => {
+    root = await fs.realpath(
+      await fs.mkdtemp(path.join(os.tmpdir(), 'emulation-volumes-test-')),
+    );
+    volumes = path.join(root, 'Volumes');
+    await fs.mkdir(volumes);
+    statePath = path.join(root, 'state', 'library.json');
+    mounted = new Map();
+  });
+  afterEach(() => fs.rm(root, { recursive: true, force: true }));
+
+  it('records the drive by volume UUID, not by device or inode', async () => {
+    const point = await mount('Games Drive', UUID_A);
+    await selectLibrary(statePath, path.join(point, 'Games'), environment());
+    const state = JSON.parse(await fs.readFile(statePath, 'utf8'));
+    expect(state.volume).toEqual({ uuid: UUID_A, relative: 'Games' });
+    expect(state.identity).toBeUndefined();
+  });
+
+  it('finds the same drive again when it comes back under another name', async () => {
+    const point = await mount('Games Drive', UUID_A);
+    await selectLibrary(statePath, path.join(point, 'Games'), environment());
+    await unplug('Games Drive');
+    await expect(readLibrary(statePath, environment())).resolves.toEqual({
+      path: path.join(volumes, 'Games Drive', 'Games'),
+      available: false,
+    });
+    // Another drive took the name first, so this one mounts as "Games Drive 1".
+    await mount('Games Drive', UUID_B);
+    await replug('Games Drive', 'Games Drive 1', UUID_A);
+    const moved = path.join(volumes, 'Games Drive 1', 'Games');
+    await expect(readLibrary(statePath, environment())).resolves.toEqual({
+      path: moved,
+      available: true,
+    });
+    // The new place is remembered.
+    expect(JSON.parse(await fs.readFile(statePath, 'utf8')).path).toBe(moved);
+  });
+
+  it('never accepts a different drive with the same name and folder', async () => {
+    const point = await mount('Games Drive', UUID_A);
+    await selectLibrary(statePath, path.join(point, 'Games'), environment());
+    await unplug('Games Drive');
+    await mount('Games Drive', UUID_B);
+    await expect(readLibrary(statePath, environment())).resolves.toEqual({
+      path: path.join(point, 'Games'),
+      available: false,
+    });
+  });
+
+  it('works for a library at the root of a drive', async () => {
+    const point = await mount('PS2 Disk', UUID_A, '.');
+    await selectLibrary(statePath, point, environment());
+    await unplug('PS2 Disk');
+    await replug('PS2 Disk', 'PS2 Disk 1', UUID_A);
+    await expect(readLibrary(statePath, environment())).resolves.toEqual({
+      path: path.join(volumes, 'PS2 Disk 1'),
+      available: true,
+    });
+  });
+
+  it('knows a network share without a UUID by its path', async () => {
+    const point = await mount('NAS', null);
+    await selectLibrary(statePath, path.join(point, 'Games'), environment());
+    await expect(readLibrary(statePath, environment())).resolves.toEqual({
+      path: path.join(point, 'Games'),
+      available: true,
+    });
+  });
+
+  it('upgrades an older device-and-inode record while it still proves the folder', async () => {
+    const point = await mount('Games Drive', UUID_A);
+    const library = path.join(point, 'Games');
+    const stat = await fs.stat(library);
+    await fs.mkdir(path.dirname(statePath), { recursive: true });
+    await fs.writeFile(
+      statePath,
+      JSON.stringify({
+        format: 'emulation-workspace-library',
+        version: 1,
+        path: library,
+        identity: { device: String(stat.dev), inode: String(stat.ino) },
+      }),
+    );
+    await expect(readLibrary(statePath, environment())).resolves.toEqual({
+      path: library,
+      available: true,
+    });
+    expect(JSON.parse(await fs.readFile(statePath, 'utf8')).volume).toEqual({
+      uuid: UUID_A,
+      relative: 'Games',
+    });
+  });
+
+  it.each([
+    { uuid: 'not-a-uuid', relative: 'Games' },
+    { uuid: UUID_A, relative: '../Other' },
+    { uuid: UUID_A },
+  ])('refuses a malformed volume record: %p', async (volume) => {
+    await fs.mkdir(path.dirname(statePath), { recursive: true });
+    await fs.writeFile(
+      statePath,
+      JSON.stringify({
+        format: 'emulation-workspace-library',
+        version: 1,
+        path: path.join(volumes, 'Games Drive', 'Games'),
+        volume,
+      }),
+    );
+    await expect(readLibrary(statePath, environment())).rejects.toThrow(
+      'unsupported format',
+    );
+  });
+});

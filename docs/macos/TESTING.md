@@ -99,3 +99,7 @@ Firmware tests use synthetic random bytes with a declared CRC32; no proprietary 
 3. Register the handler in the domain module under `src/main/macos/app/`, and add the mock to the renderer test.
 
 The preload test, the main IPC test, both smoke harnesses and the type check all read the inventory, so a method missing from any of them fails a gate.
+
+## External drives (real volumes, throwaway images)
+
+`node .erb/scripts/verify-volumes-macos.js [--parent <dir>] [--images <dir>]` creates (or copies prepared) exFAT and APFS disk images in a fresh work folder, mounts them hidden from Finder, and checks library identity, impostor refusal, rename, snapshot/restore and the library tools on each file system. It never attaches an existing drive and detaches everything at the end. `--images` expects `ExFAT.dmg`, `ExFAT-other.dmg` (a separately created image with the same volume name, for the impostor check) and `APFS.dmg`; it attaches copies, never the originals. In some sandboxed sessions `hdiutil create` is refused; use `--images` there.

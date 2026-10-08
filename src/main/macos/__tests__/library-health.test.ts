@@ -59,14 +59,13 @@ describe('library health check', () => {
         ['wrong-system', 'roms/gc/Pocket Game.cso'],
         ['unsupported', 'roms/gc/Mystery.xyz'],
         ['empty', 'roms/gc/Empty.rvz'],
-        ['apple-double', 'roms/gc/._Good Game.rvz'],
         ['link', 'roms/gc/Linked.rvz'],
         ['multi-disc', 'roms/psp/Saga (Disc 1).iso'],
         ['outside-system', 'roms/Loose.pbp'],
         ['duplicate', 'roms/gc/Good Game.rvz'],
       ]),
     );
-    expect(report.issues).toHaveLength(8);
+    expect(report.issues).toHaveLength(7);
     expect(
       report.issues.find((issue) => issue.kind === 'wrong-system')?.target,
     ).toBe('psp');

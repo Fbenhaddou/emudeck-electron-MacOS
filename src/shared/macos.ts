@@ -154,7 +154,6 @@ export interface LibraryIssue {
     | 'empty'
     | 'duplicate'
     | 'link'
-    | 'apple-double'
     | 'incomplete-folder'
     | 'multi-disc'
     | 'outside-system';

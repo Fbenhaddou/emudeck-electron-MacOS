@@ -24,8 +24,6 @@ export function describeIssue(issue: LibraryIssue): string {
       return `Looks identical to “${base(issue.other || '')}”. Remove one if you don’t need both.`;
     case 'link':
       return 'A link to a file somewhere else. Links are skipped to keep your library safe; put the file itself here instead.';
-    case 'apple-double':
-      return 'Hidden macOS information left by copying to an external drive. Safe to ignore.';
     case 'incomplete-folder':
       return 'A game folder missing files it needs, perhaps from a copy that didn’t finish.';
     case 'multi-disc':

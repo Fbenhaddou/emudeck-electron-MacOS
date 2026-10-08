@@ -91,11 +91,12 @@ Adding many emulators to today's structure would multiply the cost of every late
   - names ES-DE will mis-parse.
   - Offers fixes that copy, or move only after explicit confirmation.
   - Done 2026-10-08: Library › Library Check (`library-health.ts`). Reports misplaced games (only when the extension belongs to exactly one other system), unsupported files, empty files, likely duplicates (same size and same first/last MiB), links, macOS `._` files, incomplete folder games, multi-disc sets without `.m3u`, and games outside any system folder. The only fix is Move to <system>… after a native confirmation; it never overwrites (hard-link move, with a checked rename on exFAT). Fix/reveal accept only issue ids from main's own last check. "Names ES-DE will mis-parse" does not apply: Console Mode passes names through an opaque catalog (Decision 005). 13 unit tests, a renderer test and a smoke capture with synthetic files.
-- [ ] **External drive resilience:**
+- [~] **External drive resilience:**
   - unplug mid-session;
   - renamed volume;
   - exFAT case/permission quirks;
   - drive reconnected under a different mount path (identity already uses device/inode; extend to a volume UUID).
+  - 2026-10-08: measured on real disk images first. Device numbers change when another drive takes the slot, and exFAT inodes are synthetic, so the old identity both lost a re-plugged drive ("Games 1") and could accept a *different* exFAT drive with the same name and folder. External libraries are now known by volume UUID plus path on the volume, found again after a re-plug or rename and remembered; older records upgrade in place; network shares without a UUID are known by path. `node .erb/scripts/verify-volumes-macos.js` passed 24 checks on real exFAT and APFS volumes (identity, impostor refusal, rename, snapshot and byte-identical restore, library check, the exFAT move fallback). It also found that macOS's `._` files on exFAT were counted as saves; they are now skipped, and no longer reported by the library check. **(owner)** still to do with real hardware: unplug a USB drive while a game runs and while Console Mode is open, then reconnect.
 
 ## Phase 3 — Effortless setup (proposed)
 

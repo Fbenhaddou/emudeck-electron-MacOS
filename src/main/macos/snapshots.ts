@@ -170,6 +170,9 @@ async function walk(folder: string): Promise<Found[]> {
     const entries = await fs.readdir(directory, { withFileTypes: true });
     entries.sort((a, b) => (a.name < b.name ? -1 : 1));
     for (const entry of entries) {
+      // macOS metadata ("AppleDouble") that exFAT and other non-Mac volumes
+      // store beside every file; not saves, and recreated by macOS as needed.
+      if (entry.name.startsWith('._')) continue; // eslint-disable-line no-continue
       const absolute = path.join(directory, entry.name);
       const child = relative ? `${relative}/${entry.name}` : entry.name;
       if (entry.isDirectory()) await visit(absolute, child, depth + 1);

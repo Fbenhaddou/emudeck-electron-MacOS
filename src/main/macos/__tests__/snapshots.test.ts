@@ -103,6 +103,13 @@ describe('save snapshots', () => {
     expect(snapshot!.files).toBe(3);
   });
 
+  it('leaves out the ._ metadata files macOS writes on exFAT drives', async () => {
+    await fs.writeFile(path.join(saves(), '._MemoryCardA.USA.raw'), 'meta');
+    await fs.writeFile(path.join(states(), '._GXXE01.s01'), 'meta');
+    const snapshot = await takeSnapshot(library, source, 'manual');
+    expect(snapshot!.files).toBe(3);
+  });
+
   it('refuses a save folder that is itself a link', async () => {
     await fs.rename(states(), path.join(root, 'elsewhere'));
     await fs.symlink(path.join(root, 'elsewhere'), states());

@@ -20,7 +20,6 @@ export type HealthKind =
   | 'empty'
   | 'duplicate'
   | 'link'
-  | 'apple-double'
   | 'incomplete-folder'
   | 'multi-disc'
   | 'outside-system';
@@ -125,10 +124,8 @@ export async function checkLibrary(
       const where = relative(library, entry);
       const stat = await fs.lstat(entry).catch(() => null);
       if (!stat) continue; // eslint-disable-line no-continue
-      if (name.startsWith('._')) {
-        add({ kind: 'apple-double', path: where });
-        continue; // eslint-disable-line no-continue
-      }
+      // Hidden files, including the ._ metadata macOS writes beside every file
+      // on exFAT drives: never games, and harmless.
       if (name.startsWith('.')) continue; // eslint-disable-line no-continue
       if (stat.isSymbolicLink()) {
         add({ kind: 'link', path: where });
