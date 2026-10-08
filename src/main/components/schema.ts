@@ -1,6 +1,11 @@
 /* eslint import/extensions: ["error", "ignorePackages", { "ts": "never" }] */
 import path from 'path';
-import { ComponentManifest, HostCapabilities, TrustPolicy } from './types';
+import {
+  ComponentManifest,
+  FolderGameSpec,
+  HostCapabilities,
+  TrustPolicy,
+} from './types';
 
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -29,10 +34,14 @@ function string(value: unknown): string {
   return value;
 }
 
-function strings(value: unknown, pattern: RegExp): readonly string[] {
+function strings(
+  value: unknown,
+  pattern: RegExp,
+  allowEmpty = false,
+): readonly string[] {
   if (
     !Array.isArray(value) ||
-    !value.length ||
+    (!value.length && !allowEmpty) ||
     value.some((item) => typeof item !== 'string' || !pattern.test(item)) ||
     new Set(value).size !== value.length
   )
@@ -40,12 +49,37 @@ function strings(value: unknown, pattern: RegExp): readonly string[] {
   return Object.freeze([...value]);
 }
 
+// One to four plain segments: no absolute paths, no '.', '..' or hidden names.
+const MARKER =
+  /^[A-Za-z0-9_][A-Za-z0-9_.-]*(\/[A-Za-z0-9_][A-Za-z0-9_.-]*){0,3}$/;
+
+function folderGame(input: unknown): FolderGameSpec {
+  const value = record(input);
+  exactKeys(value, ['markers', 'launchTarget', 'companionSuffixes']);
+  const markers = strings(value.markers, MARKER);
+  if (markers.length > 8) throw new Error('Too many folder game markers');
+  const launchTarget = string(value.launchTarget);
+  if (!markers.includes(launchTarget))
+    throw new Error('Launch target must be a marker');
+  return Object.freeze({
+    markers,
+    launchTarget,
+    companionSuffixes: strings(
+      value.companionSuffixes,
+      /^-[A-Za-z0-9]+$/,
+      true,
+    ),
+  });
+}
+
 export function validateManifest(
   input: unknown,
   policy: TrustPolicy,
 ): ComponentManifest {
   const value = record(input);
+  const hasFolderGame = value.folderGame !== undefined;
   exactKeys(value, [
+    ...(hasFolderGame ? ['folderGame'] : []),
     'schemaVersion',
     'id',
     'name',
@@ -128,7 +162,8 @@ export function validateManifest(
     license: string(value.license),
     bundleName,
     executable,
-    romExtensions: strings(value.romExtensions, /^\.[a-z0-9]+$/),
+    romExtensions: strings(value.romExtensions, /^\.[a-z0-9]+$/, hasFolderGame),
+    ...(hasFolderGame ? { folderGame: folderGame(value.folderGame) } : {}),
     capabilities: Object.freeze({
       installation: 'planned',
       configuration: 'planned',

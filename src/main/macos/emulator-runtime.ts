@@ -1,8 +1,8 @@
 import fs from 'fs/promises';
-import path from 'path';
 import { spawn } from 'child_process';
 import type { ChildProcess, SpawnOptions } from 'child_process';
 import type { ComponentAdapter } from '../components/types';
+import { resolveGame } from '../components/shared/games';
 import type { AppHealth } from '../components/shared/pinned-app';
 import type { PinnedAppInstaller } from '../components/registry-types';
 
@@ -125,21 +125,16 @@ export class EmulatorRuntime {
     }
   }
 
-  /** Validates the game is a supported regular file inside this system's folder. */
-  async validateGame(library: string, game: string): Promise<string> {
-    const { roms } = this.adapter.paths(library);
-    const canonical = await fs.realpath(game);
-    const stat = await fs.lstat(canonical);
-    if (
-      canonical !== game ||
-      !canonical.startsWith(`${roms}${path.sep}`) ||
-      !stat.isFile() ||
-      !this.adapter.manifest.romExtensions.includes(
-        path.extname(game).toLowerCase(),
-      )
-    )
-      throw new Error('Choose a supported game inside this library');
-    return canonical;
+  /**
+   * Validates the game (a supported file, or a folder game) inside this
+   * system's folder, and returns what the emulator is given.
+   */
+  validateGame(library: string, game: string): Promise<string> {
+    return resolveGame(
+      this.adapter.paths(library).roms,
+      this.adapter.manifest,
+      game,
+    );
   }
 
   /** Windowed play: resolves once the emulator has started. */

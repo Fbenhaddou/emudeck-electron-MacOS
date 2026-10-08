@@ -2,6 +2,19 @@
 /* eslint import/extensions: ["error", "ignorePackages", { "ts": "never" }] */
 export type Architecture = 'arm64' | 'x64' | 'universal';
 
+/**
+ * A folder game is a direct child of the system's roms folder that contains
+ * every marker as a regular, non-empty file, reached without symlinks.
+ */
+export interface FolderGameSpec {
+  /** Folder-relative POSIX paths, e.g. 'eboot.bin', 'sce_sys/param.sfo'. */
+  markers: readonly string[];
+  /** The marker passed to the emulator, e.g. 'eboot.bin'. */
+  launchTarget: string;
+  /** Sibling folders that belong to a game (updates, DLC); never games themselves. */
+  companionSuffixes: readonly string[];
+}
+
 export interface ComponentManifest {
   schemaVersion: 1;
   id: string;
@@ -15,7 +28,10 @@ export interface ComponentManifest {
   license: string;
   bundleName: string;
   executable: string;
+  /** File games' extensions; may be empty only when folderGame is declared. */
   romExtensions: readonly string[];
+  /** Games that are folders (PS4, PS3, Wii U) rather than single files. */
+  folderGame?: FolderGameSpec;
   capabilities: {
     installation: 'planned';
     configuration: 'planned';

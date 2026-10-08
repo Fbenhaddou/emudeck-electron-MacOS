@@ -236,15 +236,21 @@ export function registerEmulatorHandlers(
             title: `Choose a ${runtime.adapter.system.shortName} Game`,
             buttonLabel: 'Play',
             defaultPath: runtime.adapter.paths(library).roms,
-            properties: ['openFile'],
-            filters: [
-              {
-                name: `${manifest.name} games and homebrew`,
-                extensions: manifest.romExtensions.map((extension) =>
-                  extension.slice(1),
-                ),
-              },
-            ],
+            // Folder games (PS4 and similar) are chosen as their folder.
+            properties: manifest.folderGame
+              ? ['openFile', 'openDirectory']
+              : ['openFile'],
+            // Folder-only systems have no file types to filter by.
+            filters: manifest.romExtensions.length
+              ? [
+                  {
+                    name: `${manifest.name} games and homebrew`,
+                    extensions: manifest.romExtensions.map((extension) =>
+                      extension.slice(1),
+                    ),
+                  },
+                ]
+              : [],
           });
           if (choice.canceled) return { ok: true };
           if (

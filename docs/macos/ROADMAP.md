@@ -46,7 +46,7 @@ Adding many emulators to today's structure would multiply the cost of every late
   - Done 2026-10-08: `src/main/components/registry.ts` lists `ManagedEmulator` entries (adapter, pinned app, preflight, managed controls); each adapter declares its `system` (id, ES-DE full name, short name). `registry.test.ts` registers a stub and proves it reaches Console Mode systems and runners, the library overview, firmware, status and the install/play/firmware allowlists. Plain-language preflight refusals use `LaunchRefusal`. The Emulators page labels builds from the manifest architecture (an Intel build says it needs Rosetta).
 - [ ] (proposed) Console Mode still requires Dolphin to be installed, and ES-DE starts on the GameCube list (`StartupSystem` default). Open it with any installed emulator, and start on the first available system.
 - [ ] (proposed) Move Dolphin onto the same registry (EmulatorRuntime + a pinned app), so it stops being a special case in main and the Emulators page.
-- [ ] **Folder-format games.** The framework currently accepts only single-file games (`validateGame` requires a regular file), but PS4 (shadPS4), PS3 (RPCS3) and Wii U (Cemu) games are folders. Support folder games end to end:
+- [x] **Folder-format games.** The framework currently accepts only single-file games (`validateGame` requires a regular file), but PS4 (shadPS4), PS3 (RPCS3) and Wii U (Cemu) games are folders. Support folder games end to end:
   - component manifests declare a game as a file or as a folder with required markers (PS4: `eboot.bin` and `sce_sys/param.sfo`);
   - PS4 update (`<game>-UPDATE`/`-patch`) and DLC folders are recognised as such, not counted as games;
   - safe validation (no symlinks escaping the library, bounded scan);
@@ -54,6 +54,7 @@ Adding many emulators to today's structure would multiply the cost of every late
   - library counts;
   - launch argv.
   - **Done when:** a synthetic folder game passes catalog → launch-plan → validation tests, with traversal and symlink refusals.
+  - Done 2026-10-08 (synthetic data only; no real PS4 content exists in the project): manifests declare `folderGame` (markers, launch target, update/DLC suffixes); `src/main/components/shared/games.ts` is the one inspector used by Console Mode, library counts and launch validation. `folder-games.test.ts` (28 tests) covers catalog opacity, argv with the absolute `eboot.bin`, and refusals for traversal, links at every level, update/DLC folders, incomplete or empty games and loose files inside folders. A security critic review found no high-severity issue; its fixes (on-disk spelling of the launch target, top-level-only files for folder systems, bounded scan, no empty file filter) are in. Accepted risks, both needing write access to the library: a link swapped in between validation and launch, and hard-linked files.
 - [x] **PS4 research spike** (owner priority; shapes the framework, so do it in this phase). Research shadPS4's current state on macOS:
   - official release source and whether it has a native Apple Silicon build;
   - Metal/MoltenVK path;

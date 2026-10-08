@@ -10,6 +10,7 @@ import { diagnosticEvent } from './diagnostics';
 import { readStickResponse } from './preferences';
 import { prepareDolphinLibrary } from './dolphin-library';
 import { createSystemsCatalog } from '../components/es-de/catalog';
+import { inspectGameEntry } from '../components/shared/games';
 import { stableGameID } from '../components/es-de/ids';
 import { installedFrontend } from '../components/es-de/install';
 import { publishProfile } from '../components/es-de/profile';
@@ -24,6 +25,8 @@ import { relativeGamePath } from './console-session';
 import { restoreFocus } from './focus';
 
 const MAX_GAMES = 10000;
+/** Entries inspected per system folder, games or not: bounds work on huge folders. */
+const MAX_SCANNED = 20000;
 
 export interface ConsoleHostPaths {
   /** Machine-local, private: managed ES-DE installations. */
@@ -83,7 +86,7 @@ export interface ConsoleEmulator {
   installed(): Promise<boolean>;
 }
 
-/** Supported top-level games per system; never follows links or leaves the library. */
+/** Supported top-level games (files or folder games) per system; never follows links or leaves the library. */
 export async function listGames(
   library: string,
   emulators: readonly ConsoleEmulator[],
@@ -95,24 +98,24 @@ export async function listGames(
     // eslint-disable-next-line no-await-in-loop
     const names = await fs.readdir(roms).catch(() => [] as string[]);
     // eslint-disable-next-line no-restricted-syntax -- Bounded sequential inspection.
-    for (const name of names.sort()) {
+    for (const name of names.sort().slice(0, MAX_SCANNED)) {
       if (games.length >= MAX_GAMES) break;
-      const extension = path.extname(name).toLowerCase();
+      // Cheap filter first: file-only systems never need to touch other names.
       if (
-        name.startsWith('.') ||
-        !adapter.manifest.romExtensions.includes(extension)
+        !adapter.manifest.folderGame &&
+        !adapter.manifest.romExtensions.includes(
+          path.extname(name).toLowerCase(),
+        )
       )
         continue; // eslint-disable-line no-continue
-      const file = path.join(roms, name);
       // eslint-disable-next-line no-await-in-loop
-      const stat = await fs.lstat(file).catch(() => null);
-      // eslint-disable-next-line no-await-in-loop
-      if (stat?.isFile() && (await fs.realpath(file)) === file)
+      const entry = await inspectGameEntry(roms, name, adapter.manifest);
+      if (entry)
         games.push({
           system: system.id,
-          path: file,
-          relativePath: relativeGamePath(library, file),
-          name: path.basename(name, path.extname(name)).normalize('NFC'),
+          path: entry.path,
+          relativePath: relativeGamePath(library, entry.path),
+          name: entry.name,
         });
     }
   }
