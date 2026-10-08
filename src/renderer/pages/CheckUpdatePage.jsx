@@ -90,14 +90,14 @@ function CheckUpdatePage() {
   const updateFiles = () => {
     // Get latest settings versions in storage
     const currentVersions = JSON.parse(
-      localStorage.getItem('current_versions')
+      localStorage.getItem('current_versions'),
     );
     if (currentVersions) {
       setStateCurrentConfigs({ ...currentVersions });
     }
 
     const settingsStorage = JSON.parse(
-      localStorage.getItem('settings_emudeck')
+      localStorage.getItem('settings_emudeck'),
     );
 
     if (settingsStorage) {

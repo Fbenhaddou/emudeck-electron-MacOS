@@ -8,7 +8,7 @@ export const useFetchCond = (endpoint) => {
     url,
     method = 'GET',
     body = false,
-    headers = defaultHeader
+    headers = defaultHeader,
   ) => {
     const options = {
       method,

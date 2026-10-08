@@ -129,10 +129,12 @@ describe('save snapshots', () => {
     );
   });
 
-  it('keeps the newest 30 and removes only its own older snapshots', async () => {
+  it('keeps 30 snapshots of changed saves and removes only its own', async () => {
     const userFile = path.join(snapshotRoot(library, 'dolphin'), 'notes.txt');
     // eslint-disable-next-line no-restricted-syntax
     for (let day = 0; day < 32; day += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await fs.writeFile(path.join(states(), 'GXXE01.s01'), `day ${day}`);
       // eslint-disable-next-line no-await-in-loop
       await takeSnapshot(
         library,
@@ -147,6 +149,54 @@ describe('save snapshots', () => {
     expect(list).toHaveLength(30);
     expect(list[0].created).toBe('2026-10-02T00:00:00.000Z');
     await expect(fs.readFile(userFile, 'utf8')).resolves.toBe('mine');
+  });
+
+  it('never copies unchanged saves again, so repeated clicks cannot evict older saves', async () => {
+    const first = await takeSnapshot(library, source, 'daily');
+    // eslint-disable-next-line no-restricted-syntax
+    for (let click = 0; click < 40; click += 1)
+      // eslint-disable-next-line no-await-in-loop
+      expect(await takeSnapshot(library, source, 'manual')).toEqual(first);
+    await expect(listSnapshots(library, 'dolphin')).resolves.toHaveLength(1);
+  });
+
+  it('orders by sequence, so a clock set back never prunes the newest backup', async () => {
+    // eslint-disable-next-line no-restricted-syntax
+    for (let day = 0; day < 30; day += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await fs.writeFile(path.join(states(), 'GXXE01.s01'), `day ${day}`);
+      // eslint-disable-next-line no-await-in-loop
+      await takeSnapshot(
+        library,
+        source,
+        'manual',
+        new Date(Date.UTC(2030, 0, 1 + day)),
+      );
+    }
+    const [target] = (await listSnapshots(library, 'dolphin')).slice(-1);
+    await fs.writeFile(path.join(states(), 'GXXE01.s01'), 'current progress');
+    const current = await tree(states());
+    // The clock now reads 2020: the before-restore snapshot must survive.
+    const { before } = await restoreSnapshot(
+      library,
+      source,
+      target.id,
+      new Date('2020-01-01T00:00:00.000Z'),
+    );
+    const list = await listSnapshots(library, 'dolphin');
+    expect(list[0].id).toBe(before!.id);
+    const kept = path.join(snapshotRoot(library, 'dolphin'), before!.id);
+    expect(await tree(path.join(kept, 'states'))).toEqual(current);
+    // A changed save with a clock behind the newest backup still gets a daily backup.
+    await fs.writeFile(path.join(saves(), 'new.gci'), 'x');
+    expect(
+      await takeSnapshot(
+        library,
+        source,
+        'daily',
+        new Date('2019-01-01T00:00:00.000Z'),
+      ),
+    ).not.toBeNull();
   });
 
   it('restores a corrupted save byte for byte and keeps the corrupted copy', async () => {
@@ -217,16 +267,161 @@ describe('save snapshots', () => {
     },
   );
 
-  it('puts saves back after a restore interrupted between the two moves', async () => {
+  it('rolls back every folder when sealing the restore fails (full or unplugged drive)', async () => {
+    const snapshot = await takeSnapshot(library, source, 'manual');
+    await fs.writeFile(path.join(states(), 'GXXE01.s01'), 'newer progress');
+    const before = await tree(path.dirname(saves()));
+    const open = fs.open.bind(fs);
+    const spy = jest
+      .spyOn(fs, 'open')
+      .mockImplementation(async (file, ...rest) => {
+        if (String(file).includes('before-restore.partial/manifest.json'))
+          throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+        return open(file as string, ...(rest as [string]));
+      });
+    await expect(
+      restoreSnapshot(library, source, snapshot!.id),
+    ).rejects.toThrow('ENOSPC');
+    spy.mockRestore();
+    expect(await tree(path.dirname(saves()))).toEqual(before);
+    const leftovers = await fs.readdir(snapshotRoot(library, 'dolphin'));
+    expect(leftovers).toEqual([snapshot!.id]);
+  });
+
+  it('rolls back the first folder when the second swap fails', async () => {
+    const snapshot = await takeSnapshot(library, source, 'manual');
+    await fs.writeFile(path.join(saves(), 'MemoryCardA.USA.raw'), 'changed');
+    const before = await tree(path.dirname(saves()));
+    const rename = fs.rename.bind(fs);
+    const spy = jest
+      .spyOn(fs, 'rename')
+      .mockImplementation(async (from, to) => {
+        if (String(from).includes('StateSaves.restoring-'))
+          throw Object.assign(new Error('EIO'), { code: 'EIO' });
+        return rename(from, to);
+      });
+    await expect(
+      restoreSnapshot(library, source, snapshot!.id),
+    ).rejects.toThrow('EIO');
+    spy.mockRestore();
+    expect(await tree(path.dirname(saves()))).toEqual(before);
+  });
+
+  it('after a crash mid-restore, puts the original saves back and keeps what was live', async () => {
+    const snapshot = await takeSnapshot(library, source, 'manual');
+    await fs.writeFile(
+      path.join(saves(), 'MemoryCardA.USA.raw'),
+      'original now',
+    );
+    const original = await tree(path.dirname(saves()));
+    // Simulate a crash right after the swaps: journal written, originals moved.
     const root2 = snapshotRoot(library, 'dolphin');
     const partial = path.join(
       root2,
-      '2026-10-01T10-00-00-000Z-before-restore.partial',
+      '000009-2026-10-01T10-00-00-000Z-before-restore.partial',
     );
-    await fs.mkdir(partial, { recursive: true });
-    const original = await tree(saves());
+    await fs.mkdir(partial);
+    await fs.writeFile(
+      path.join(root2, 'restore-journal.json'),
+      JSON.stringify({
+        version: 1,
+        partial,
+        folders: [
+          {
+            name: 'saves',
+            live: saves(),
+            staging: `${saves()}.restoring-000009`,
+            hadLive: true,
+          },
+          {
+            name: 'states',
+            live: states(),
+            staging: `${states()}.restoring-000009`,
+            hadLive: true,
+          },
+        ],
+        exclude: [],
+      }),
+    );
     await fs.rename(saves(), path.join(partial, 'saves'));
+    await fs.cp(path.join(root2, snapshot!.id, 'saves'), saves(), {
+      recursive: true,
+    });
+    // An emulator opened from Finder wrote to the restored folder before recovery.
+    await fs.writeFile(
+      path.join(saves(), 'written-after-crash.gci'),
+      'keep me',
+    );
     await recoverInterrupted(library, source);
-    expect(await tree(saves())).toEqual(original);
+    expect(await tree(path.dirname(saves()))).toEqual(original);
+    const list = await listSnapshots(library, 'dolphin');
+    const interrupted = list.find((item) => item.reason === 'interrupted');
+    expect(interrupted).toBeDefined();
+    await expect(
+      fs.readFile(
+        path.join(root2, interrupted!.id, 'saves', 'written-after-crash.gci'),
+        'utf8',
+      ),
+    ).resolves.toBe('keep me');
+    await expect(
+      fs.lstat(path.join(root2, 'restore-journal.json')),
+    ).rejects.toThrow();
+    expect(
+      (await fs.readdir(root2)).some((name) => name.endsWith('.partial')),
+    ).toBe(false);
+  });
+
+  it('removes staging copies left by a crash before the journal existed', async () => {
+    await fs.mkdir(`${saves()}.restoring-000003`);
+    await fs.writeFile(
+      path.join(`${saves()}.restoring-000003`, 'copy.gci'),
+      'x',
+    );
+    await fs.mkdir(`${saves()}.restoring-mine`);
+    await recoverInterrupted(library, source);
+    await expect(fs.lstat(`${saves()}.restoring-000003`)).rejects.toThrow();
+    // Not this module's naming pattern: left alone.
+    await expect(fs.lstat(`${saves()}.restoring-mine`)).resolves.toBeDefined();
+  });
+
+  it('never copies or swaps firmware kept beside the saves', async () => {
+    const firmware = { ...source, exclude: ['saves/USA/IPL.bin'] };
+    await fs.writeFile(path.join(saves(), 'USA', 'IPL.bin'), 'old ipl');
+    const snapshot = await takeSnapshot(library, firmware, 'manual');
+    expect(snapshot!.files).toBe(3);
+    // The person imports a newer IPL, then restores an older backup.
+    await fs.writeFile(path.join(saves(), 'USA', 'IPL.bin'), 'new ipl');
+    await fs.writeFile(path.join(saves(), 'MemoryCardA.USA.raw'), 'changed');
+    const { before } = await restoreSnapshot(library, firmware, snapshot!.id);
+    await expect(
+      fs.readFile(path.join(saves(), 'USA', 'IPL.bin'), 'utf8'),
+    ).resolves.toBe('new ipl');
+    await expect(
+      fs.readFile(path.join(saves(), 'MemoryCardA.USA.raw'), 'utf8'),
+    ).resolves.toBe('card');
+    const kept = await tree(
+      path.join(snapshotRoot(library, 'dolphin'), before!.id, 'saves'),
+    );
+    expect(Object.keys(kept)).not.toContain('USA/IPL.bin');
+  });
+
+  it('a rolled-back restore leaves no saves where there were none', async () => {
+    const snapshot = await takeSnapshot(library, source, 'manual');
+    await fs.rm(states(), { recursive: true });
+    const before = await tree(path.dirname(saves()));
+    const open = fs.open.bind(fs);
+    const spy = jest
+      .spyOn(fs, 'open')
+      .mockImplementation(async (file, ...rest) => {
+        if (String(file).includes('before-restore.partial/manifest.json'))
+          throw new Error('EIO');
+        return open(file as string, ...(rest as [string]));
+      });
+    await expect(
+      restoreSnapshot(library, source, snapshot!.id),
+    ).rejects.toThrow();
+    spy.mockRestore();
+    expect(await tree(path.dirname(saves()))).toEqual(before);
+    await expect(fs.lstat(states())).rejects.toThrow();
   });
 });

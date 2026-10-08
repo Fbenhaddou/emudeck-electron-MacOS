@@ -73,13 +73,13 @@ function EndPage() {
       setStatePage({ ...statePage, modal: modalData });
       ipcChannel.sendMessage(
         'emudeck',
-        'powershell -ExecutionPolicy Bypass -NoProfile -File "$toolsPath/launchers/srm/steamrommanager.ps1"'
+        'powershell -ExecutionPolicy Bypass -NoProfile -File "$toolsPath/launchers/srm/steamrommanager.ps1"',
       );
     } else if (system !== 'darwin') {
       setStatePage({ ...statePage, modal: modalData });
       ipcChannel.sendMessage(
         'emudeck',
-        '"$toolsPath/launchers/srm/steamrommanager.sh"'
+        '"$toolsPath/launchers/srm/steamrommanager.sh"',
       );
     } else {
       modalData = {
@@ -94,7 +94,7 @@ function EndPage() {
       setStatePage({ ...statePage, modal: modalData });
       ipcChannel.sendMessage(
         'emudeck',
-        '"$toolsPath/launchers/srm/steamrommanager.sh"'
+        '"$toolsPath/launchers/srm/steamrommanager.sh"',
       );
     }
     let timer;

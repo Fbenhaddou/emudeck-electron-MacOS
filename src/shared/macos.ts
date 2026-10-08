@@ -121,6 +121,7 @@ export interface SnapshotSummary {
     | 'before-reset'
     | 'before-controls'
     | 'before-restore'
+    | 'interrupted'
     | 'manual';
   /** ISO time. */
   created: string;

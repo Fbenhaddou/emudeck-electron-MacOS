@@ -15,6 +15,7 @@ import { EmulatorRuntime, defaultSpawn } from '../emulator-runtime';
 import { acceptsOneOf } from '../security';
 import { BUSY } from './context';
 import type { AppContext } from './context';
+import { backupRefusal } from './saves';
 import type { Saves } from './saves';
 
 /** Dolphin (the original manager), the pinned-app emulators and their systems. */
@@ -126,10 +127,11 @@ export function registerEmulatorHandlers(
           throw new Error('Library changed');
         await prepareDolphinLibrary(library);
         return { ok: true };
-      } catch {
+      } catch (error) {
         return {
           ok: false,
           error:
+            backupRefusal(error, 'Dolphin') ||
             'Dolphin could not be installed or configured. Check your connection and library drive. Installation requires an official ARM64 build accepted by macOS security checks; existing games and saves are preserved.',
         };
       }
@@ -199,10 +201,11 @@ export function registerEmulatorHandlers(
         await saves.before(library, 'dolphin', 'before-reset');
         await manager.reset(library);
         return { ok: true };
-      } catch {
+      } catch (error) {
         return {
           ok: false,
           error:
+            backupRefusal(error, 'Dolphin') ||
             'Settings could not be reset. Any original settings are preserved in the Dolphin User folder or its Config.backup folder. Games and saves have not been removed.',
         };
       }
@@ -214,23 +217,27 @@ export function registerEmulatorHandlers(
     async (args): Promise<ActionResult> => {
       const runtime = pinned[args[0] as string];
       if (context.busy()) return { ok: false, error: BUSY };
-      try {
-        const library = await context.availableLibrary();
-        if ((await runtime.status()).health !== 'missing')
-          await saves.before(
-            library,
-            runtime.adapter.manifest.id,
-            'before-update',
-          );
-        await runtime.install();
-        await runtime.prepareLibrary(await context.availableLibrary());
-        return { ok: true };
-      } catch {
-        return {
-          ok: false,
-          error: `${runtime.adapter.manifest.name} could not be installed. Check your connection and library drive. Only the reviewed official release, verified by its publisher signature and macOS, is installed; games and saves are preserved.`,
-        };
-      }
+      return context.exclusive(async () => {
+        try {
+          const library = await context.availableLibrary();
+          if ((await runtime.status()).health !== 'missing')
+            await saves.before(
+              library,
+              runtime.adapter.manifest.id,
+              'before-update',
+            );
+          await runtime.install();
+          await runtime.prepareLibrary(await context.availableLibrary());
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              backupRefusal(error, runtime.adapter.manifest.name) ||
+              `${runtime.adapter.manifest.name} could not be installed. Check your connection and library drive. Only the reviewed official release, verified by its publisher signature and macOS, is installed; games and saves are preserved.`,
+          };
+        }
+      });
     },
     (values) => acceptsOneOf(values, pinnedIDs),
   );

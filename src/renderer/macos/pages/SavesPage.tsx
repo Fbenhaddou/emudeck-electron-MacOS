@@ -15,6 +15,7 @@ const reasons: Record<SnapshotSummary['reason'], string> = {
   'before-reset': 'Before resetting settings',
   'before-controls': 'Before changing controls',
   'before-restore': 'Before restoring',
+  interrupted: 'Found after an interrupted restore',
   manual: 'Manual backup',
 };
 

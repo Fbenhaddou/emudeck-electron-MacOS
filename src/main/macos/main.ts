@@ -94,6 +94,12 @@ registerDiagnosticsHandlers(context, {
 });
 context.handle('mac:status', getStatus);
 
+// Finish or roll back a restore interrupted by a crash or an unplugged drive.
+void context
+  .availableLibrary()
+  .then((library) => saves.recover(library))
+  .catch(() => undefined);
+
 startApplication(context, {
   smoke,
   getStatus,

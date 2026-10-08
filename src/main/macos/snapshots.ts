@@ -6,9 +6,19 @@ import path from 'path';
 
 /**
  * Versioned copies of an emulator's saves and save states, kept inside the
- * library (backups/saves/<emulator>/<id>/) so they travel with it. Nothing
- * here ever deletes or overwrites a user's save: restore moves the current
- * files into a new snapshot first, and pruning removes only old snapshots.
+ * library (backups/saves/<emulator>/<id>/) so they travel with it.
+ *
+ * Guarantees:
+ * - A user's save is never deleted or overwritten. Restore moves the current
+ *   folders into a new snapshot, and every step after the first move is
+ *   journaled: a failure, crash or unplugged drive rolls back to exactly the
+ *   previous state, at once or at the next start.
+ * - Snapshots are ordered by a sequence number, never by the clock.
+ * - Unchanged saves never make a new snapshot, so retention counts content.
+ * - Pruning removes only this module's own sealed snapshots, and never the one
+ *   just made, the newest daily one, or recent before-restore ones.
+ * - Firmware stored beside saves (e.g. Dolphin's IPL.bin) is neither copied
+ *   nor swapped by a restore.
  */
 
 export type SnapshotReason =
@@ -17,12 +27,15 @@ export type SnapshotReason =
   | 'before-reset'
   | 'before-controls'
   | 'before-restore'
+  | 'interrupted'
   | 'manual';
 
 /** One emulator's save folders, by stable name (e.g. saves → User/GC). */
 export interface SnapshotSource {
   emulator: string;
   folders: Readonly<Record<string, string>>;
+  /** '<folder name>/<relative path>' files never copied or swapped (firmware). */
+  exclude?: readonly string[];
 }
 
 export interface SnapshotFile {
@@ -39,6 +52,7 @@ export interface SnapshotManifest {
   emulator: string;
   reason: SnapshotReason;
   created: string;
+  sequence: number;
   folders: string[];
   files: SnapshotFile[];
 }
@@ -59,22 +73,32 @@ export class SnapshotError extends Error {
   }
 }
 
+/** Sealed snapshots kept per emulator, counting the protected ones. */
 const KEEP = 30;
+/** Newest before-restore / interrupted snapshots that are never pruned. */
+const KEEP_RESTORE_POINTS = 10;
 const MAX_FILES = 50000;
 const MAX_DEPTH = 16;
 /** Clone on APFS (no extra space), copy elsewhere; never overwrite. */
 // eslint-disable-next-line no-bitwise -- copyfile flags.
 const COPY_FLAGS = constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL;
-const ID = /^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-z-]+$/;
+const ID = /^\d{6}-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-z-]+$/;
+const SEQUENCE = /^(\d{6})-/;
 const EMULATOR = /^[a-z][a-z0-9-]*$/;
 const FOLDER = /^[a-z][a-z0-9-]*$/;
+const JOURNAL = 'restore-journal.json';
 const REASONS: readonly SnapshotReason[] = [
   'daily',
   'before-update',
   'before-reset',
   'before-controls',
   'before-restore',
+  'interrupted',
   'manual',
+];
+const RESTORE_POINTS: readonly SnapshotReason[] = [
+  'before-restore',
+  'interrupted',
 ];
 
 export function snapshotRoot(library: string, emulator: string): string {
@@ -89,12 +113,20 @@ function checkSource(source: SnapshotSource): void {
     throw new SnapshotError('Invalid save folders');
 }
 
+/** Missing → false; a real folder → true; anything else (a link) refuses. */
 async function realDirectory(target: string): Promise<boolean> {
   const stat = await fs.lstat(target).catch(() => null);
   if (!stat) return false;
   if (!stat.isDirectory() || stat.isSymbolicLink())
     throw new SnapshotError('A save folder is not a real folder');
   return true;
+}
+
+function exists(target: string): Promise<boolean> {
+  return fs.lstat(target).then(
+    () => true,
+    () => false,
+  );
 }
 
 /** Creates each missing segment below `base` as a real folder; never follows links. */
@@ -156,19 +188,26 @@ async function walk(folder: string): Promise<Found[]> {
   return found;
 }
 
-/** Current save files, as they would appear in a manifest (without hashes). */
+/** Current save files (excluding firmware), as a manifest would list them. */
 async function currentFiles(source: SnapshotSource) {
+  const excluded = new Set(source.exclude || []);
   const files: Array<Found & { path: string }> = [];
   for (const [name, folder] of Object.entries(source.folders)) {
     if (!(await realDirectory(folder))) continue; // eslint-disable-line no-continue
-    for (const item of await walk(folder))
-      files.push({ ...item, path: `${name}/${item.relative}` });
+    for (const item of await walk(folder)) {
+      const filePath = `${name}/${item.relative}`;
+      if (!excluded.has(filePath)) files.push({ ...item, path: filePath });
+    }
   }
   return files;
 }
 
-function stamp(now: Date, reason: SnapshotReason): string {
-  return `${now.toISOString().replace(/:/g, '-').replace('.', '-')}-${reason}`;
+function fingerprint(
+  files: ReadonlyArray<{ path: string; bytes: number; modified: number }>,
+): string {
+  return files
+    .map((file) => `${file.path}\0${file.bytes}\0${file.modified}`)
+    .join('\n');
 }
 
 async function readManifest(directory: string): Promise<SnapshotManifest> {
@@ -195,7 +234,27 @@ function info(id: string, manifest: SnapshotManifest): SnapshotInfo {
   };
 }
 
-/** Complete snapshots, newest first. Incomplete (.partial) ones are not listed. */
+/** The next sequence number, above every snapshot, partial or not. */
+async function nextSequence(root: string): Promise<number> {
+  const names = (await realDirectory(root)) ? await fs.readdir(root) : [];
+  return (
+    names.reduce((highest, name) => {
+      const match = SEQUENCE.exec(name);
+      return match ? Math.max(highest, Number(match[1])) : highest;
+    }, 0) + 1
+  );
+}
+
+function snapshotName(
+  sequence: number,
+  now: Date,
+  reason: SnapshotReason,
+): string {
+  const time = now.toISOString().replace(/:/g, '-').replace('.', '-');
+  return `${String(sequence).padStart(6, '0')}-${time}-${reason}`;
+}
+
+/** Sealed snapshots, newest first (by sequence). Partial ones are not listed. */
 export async function listSnapshots(
   library: string,
   emulator: string,
@@ -213,41 +272,13 @@ export async function listSnapshots(
   return items;
 }
 
-/**
- * Finishes a restore that was interrupted after the live folders were moved
- * aside: any live folder that is missing is moved back from the newest
- * before-restore snapshot still marked partial. Never deletes anything.
- */
-export async function recoverInterrupted(
-  library: string,
-  source: SnapshotSource,
-): Promise<void> {
-  checkSource(source);
-  const root = snapshotRoot(library, source.emulator);
-  if (!(await realDirectory(root))) return;
-  const partial = (await fs.readdir(root))
-    .filter((name) => name.endsWith('-before-restore.partial'))
-    .sort()
-    .reverse();
-  for (const name of partial) {
-    for (const [folder, live] of Object.entries(source.folders)) {
-      const moved = path.join(root, name, folder);
-      const liveExists = await fs.lstat(live).then(
-        () => true,
-        () => false,
-      );
-      if (!liveExists && (await realDirectory(moved)))
-        await fs.rename(moved, live);
-    }
-  }
-}
-
-/** Writes a manifest for the files already in `directory`, verifying each. */
+/** Writes a manifest for the files already in `directory`, hashing each. */
 async function seal(
   directory: string,
   source: SnapshotSource,
   reason: SnapshotReason,
   now: Date,
+  sequence: number,
   modified: Map<string, number>,
 ): Promise<SnapshotManifest> {
   const files: SnapshotFile[] = [];
@@ -269,34 +300,213 @@ async function seal(
     emulator: source.emulator,
     reason,
     created: now.toISOString(),
+    sequence,
     folders: Object.keys(source.folders),
     files,
   };
-  await fs.writeFile(
-    path.join(directory, 'manifest.json'),
-    `${JSON.stringify(manifest, null, 2)}\n`,
-    { flag: 'wx' },
-  );
+  const handle = await fs.open(path.join(directory, 'manifest.json'), 'wx');
+  try {
+    await handle.writeFile(`${JSON.stringify(manifest, null, 2)}\n`);
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
   return manifest;
 }
 
-/** Removes only this app's own oldest complete snapshots beyond the limit. */
-async function prune(library: string, emulator: string): Promise<void> {
+/** Removes a folder only when it holds no regular files except this module's manifest. */
+async function removeIfEmpty(directory: string): Promise<void> {
+  if (!(await realDirectory(directory))) return;
+  const files = await walk(directory);
+  if (files.some((file) => file.relative !== 'manifest.json')) return;
+  await fs.rm(directory, { recursive: true });
+}
+
+/**
+ * Removes this module's own oldest sealed snapshots beyond KEEP. Never removes
+ * `keep` (the one just made), the newest daily snapshot or the newest
+ * KEEP_RESTORE_POINTS before-restore/interrupted snapshots.
+ */
+async function prune(
+  library: string,
+  emulator: string,
+  keep: string,
+): Promise<void> {
   const root = snapshotRoot(library, emulator);
-  const complete = await listSnapshots(library, emulator);
-  for (const old of complete.slice(KEEP)) {
+  const all = await listSnapshots(library, emulator);
+  const protectedIDs = new Set<string>([keep]);
+  const newestDaily = all.find((item) => item.reason === 'daily');
+  if (newestDaily) protectedIDs.add(newestDaily.id);
+  all
+    .filter((item) => RESTORE_POINTS.includes(item.reason))
+    .slice(0, KEEP_RESTORE_POINTS)
+    .forEach((item) => protectedIDs.add(item.id));
+  const candidates = all.filter((item) => !protectedIDs.has(item.id));
+  const room = Math.max(0, KEEP - protectedIDs.size);
+  for (const old of candidates.slice(room)) {
     const directory = path.join(root, old.id);
-    // Only folders this module created and sealed: ID pattern plus manifest.
     if (ID.test(old.id) && (await realDirectory(directory)))
       await fs.rm(directory, { recursive: true });
+  }
+}
+
+interface Journal {
+  version: 1;
+  /** The before-restore snapshot folder (partial) holding the moved live folders. */
+  partial: string;
+  /** hadLive: the live folder existed before the restore. */
+  folders: Array<{
+    name: string;
+    live: string;
+    staging: string;
+    hadLive: boolean;
+  }>;
+  exclude: string[];
+}
+
+async function writeJournal(root: string, journal: Journal): Promise<void> {
+  const handle = await fs.open(path.join(root, JOURNAL), 'wx');
+  try {
+    await handle.writeFile(JSON.stringify(journal));
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Moves firmware files (never swapped) from one save folder to another. */
+async function carryExcluded(
+  excluded: readonly string[],
+  name: string,
+  from: string,
+  to: string,
+): Promise<void> {
+  for (const filePath of excluded) {
+    const [folder, ...rest] = filePath.split('/');
+    if (folder !== name || !rest.length) continue; // eslint-disable-line no-continue
+    const source = path.join(from, ...rest);
+    const target = path.join(to, ...rest);
+    if (!(await exists(source)) || (await exists(target))) continue; // eslint-disable-line no-continue
+    await makeDirectories(to, rest.slice(0, -1).join('/'));
+    await fs.rename(source, target);
+  }
+}
+
+/**
+ * Undoes a journaled restore. Each live folder that was swapped gets its
+ * original back. What was live instead is dropped only when it is certainly
+ * this module's own copy (`ours`, the same process, nothing could have run);
+ * after a crash it is kept as an 'interrupted' snapshot, since an emulator
+ * may have written to it.
+ */
+async function rollBack(
+  library: string,
+  source: SnapshotSource,
+  ours: boolean,
+  now: Date,
+): Promise<void> {
+  const root = snapshotRoot(library, source.emulator);
+  const text = await fs
+    .readFile(path.join(root, JOURNAL), 'utf8')
+    .catch(() => null);
+  if (text === null) return;
+  const journal = JSON.parse(text) as Journal;
+  if (
+    journal.version !== 1 ||
+    path.dirname(journal.partial) !== root ||
+    !journal.partial.endsWith('.partial')
+  )
+    throw new SnapshotError('Unreadable restore journal');
+  let kept: string | null = null;
+  for (const folder of journal.folders) {
+    // Only folders this source still names; never a path from the file alone.
+    if (
+      source.folders[folder.name] !== folder.live ||
+      folder.staging !== `${folder.live}.restoring-${folder.staging.slice(-6)}`
+    )
+      continue; // eslint-disable-line no-continue
+    const original = path.join(journal.partial, folder.name);
+    const originalMoved = await realDirectory(original);
+    // The live folder now holds the restored copy when the original was moved
+    // away, or when there was no original and the staging folder is gone.
+    const swapped =
+      originalMoved || (!folder.hadLive && !(await exists(folder.staging)));
+    if (swapped && (await realDirectory(folder.live))) {
+      // Firmware was carried into the restored folder; give it back first.
+      if (originalMoved)
+        await carryExcluded(
+          journal.exclude,
+          folder.name,
+          folder.live,
+          original,
+        );
+      if (ours) {
+        await fs.rename(folder.live, folder.staging);
+      } else {
+        if (!kept) {
+          kept = path.join(
+            root,
+            `${snapshotName(await nextSequence(root), now, 'interrupted')}.partial`,
+          );
+          await fs.mkdir(kept);
+        }
+        await fs.rename(folder.live, path.join(kept, folder.name));
+      }
+    }
+    if (originalMoved) await fs.rename(original, folder.live);
+    // Staging folders are copies of a sealed, verified snapshot: safe to drop.
+    if (await exists(folder.staging))
+      await fs.rm(folder.staging, { recursive: true });
+  }
+  if (kept) {
+    const name = path.basename(kept, '.partial');
+    const sequence = Number(SEQUENCE.exec(name)![1]);
+    const manifest = await seal(
+      kept,
+      source,
+      'interrupted',
+      now,
+      sequence,
+      new Map(),
+    );
+    if (manifest.files.length) await fs.rename(kept, path.join(root, name));
+    else await removeIfEmpty(kept);
+  }
+  await removeIfEmpty(journal.partial);
+  await fs.rm(path.join(root, JOURNAL));
+}
+
+/**
+ * Brings the save folders back to a consistent state after a crash or an
+ * unplugged drive during a restore, and removes leftover staging copies. Run
+ * at startup and before every snapshot operation. Never deletes a user's file.
+ */
+export async function recoverInterrupted(
+  library: string,
+  source: SnapshotSource,
+  now = new Date(),
+): Promise<void> {
+  checkSource(source);
+  const root = snapshotRoot(library, source.emulator);
+  if (await realDirectory(root)) await rollBack(library, source, false, now);
+  // Staging copies left by a crash before the journal existed.
+  for (const live of Object.values(source.folders)) {
+    const parent = path.dirname(live);
+    const prefix = `${path.basename(live)}.restoring-`;
+    const names = await fs.readdir(parent).catch(() => [] as string[]);
+    for (const name of names) {
+      if (name.startsWith(prefix) && /^\d{6}$/.test(name.slice(prefix.length)))
+        await fs.rm(path.join(parent, name), { recursive: true });
+    }
   }
 }
 
 /**
  * Copies the source's save folders into a new snapshot (APFS clones where the
  * volume supports them). Returns null when there is nothing to save, or for a
- * daily snapshot when nothing changed since the newest one. The caller must
- * ensure the emulator is not running.
+ * daily snapshot when nothing changed or the newest is under a day old.
+ * Unchanged saves return the newest existing snapshot instead of a copy. The
+ * caller must ensure the emulator is not running.
  */
 export async function takeSnapshot(
   library: string,
@@ -305,30 +515,23 @@ export async function takeSnapshot(
   now = new Date(),
 ): Promise<SnapshotInfo | null> {
   checkSource(source);
-  await recoverInterrupted(library, source);
+  await recoverInterrupted(library, source, now);
   const files = await currentFiles(source);
   if (!files.length) return null;
   const root = snapshotRoot(library, source.emulator);
-  if (reason === 'daily') {
-    const [latest] = await listSnapshots(library, source.emulator);
-    if (latest) {
-      const manifest = await readManifest(path.join(root, latest.id));
-      const fingerprint = (
-        list: Array<{ path: string; bytes: number; modified: number }>,
-      ) =>
-        list
-          .map((file) => `${file.path}\0${file.bytes}\0${file.modified}`)
-          .join('\n');
-      const age = now.getTime() - Date.parse(manifest.created);
-      if (
-        age < 24 * 3600 * 1000 ||
-        fingerprint(manifest.files) === fingerprint(files)
-      )
-        return null;
-    }
+  const [latest] = await listSnapshots(library, source.emulator);
+  if (latest) {
+    const manifest = await readManifest(path.join(root, latest.id));
+    const unchanged = fingerprint(manifest.files) === fingerprint(files);
+    // A clock set back gives a negative age: treat it as due, never as recent.
+    const age = now.getTime() - Date.parse(manifest.created);
+    if (reason === 'daily' && (unchanged || (age >= 0 && age < 24 * 3600e3)))
+      return null;
+    if (unchanged) return latest;
   }
   await makeDirectories(library, path.relative(library, root));
-  const id = stamp(now, reason);
+  const sequence = await nextSequence(root);
+  const id = snapshotName(sequence, now, reason);
   const partial = path.join(root, `${id}.partial`);
   await fs.mkdir(partial);
   let manifest: SnapshotManifest;
@@ -344,7 +547,7 @@ export async function takeSnapshot(
         throw new SnapshotError('A save changed while it was being copied');
       modified.set(file.path, file.modified);
     }
-    manifest = await seal(partial, source, reason, now, modified);
+    manifest = await seal(partial, source, reason, now, sequence, modified);
     await fs.rename(partial, path.join(root, id));
   } catch (error) {
     // Only this snapshot's own incomplete folder is removed.
@@ -353,7 +556,7 @@ export async function takeSnapshot(
       .catch(() => undefined);
     throw error;
   }
-  await prune(library, source.emulator);
+  await prune(library, source.emulator, id);
   return info(id, manifest);
 }
 
@@ -385,10 +588,12 @@ export async function verifySnapshot(
 }
 
 /**
- * Restores a snapshot byte for byte. Order: verify the snapshot; build
- * verified copies beside the live folders; move the live folders into a new
- * before-restore snapshot; move the copies into place; seal. The caller must
- * ensure the emulator is not running and the person confirmed.
+ * Restores a snapshot byte for byte (firmware files excepted). Verifies the
+ * snapshot, builds verified copies beside the live folders, then — journaled —
+ * moves each live folder into a new before-restore snapshot and the copy into
+ * place. Any failure before the before-restore snapshot is sealed rolls every
+ * folder back. The caller must ensure the emulator is not running and the
+ * person confirmed.
  */
 export async function restoreSnapshot(
   library: string,
@@ -397,23 +602,36 @@ export async function restoreSnapshot(
   now = new Date(),
 ): Promise<{ before: SnapshotInfo | null }> {
   checkSource(source);
-  await recoverInterrupted(library, source);
+  await recoverInterrupted(library, source, now);
   const manifest = await verifySnapshot(library, source.emulator, id);
   const root = snapshotRoot(library, source.emulator);
   const snapshot = path.join(root, id);
-  const staged: Record<string, string> = {};
-  const token = stamp(now, 'before-restore');
+  const sequence = await nextSequence(root);
+  const token = snapshotName(sequence, now, 'before-restore');
+  const suffix = String(sequence).padStart(6, '0');
+  const journal: Journal = {
+    version: 1,
+    partial: path.join(root, `${token}.partial`),
+    folders: [],
+    exclude: [...(source.exclude || [])],
+  };
+  const staged = Object.entries(source.folders).map(([name, live]) => ({
+    name,
+    live,
+    staging: `${live}.restoring-${suffix}`,
+  }));
   try {
-    for (const [name, live] of Object.entries(source.folders)) {
-      const staging = `${live}.restoring-${token}`;
-      await makeDirectories(path.dirname(live), path.basename(staging));
-      staged[name] = staging;
+    for (const folder of staged) {
+      await makeDirectories(
+        path.dirname(folder.live),
+        path.basename(folder.staging),
+      );
       for (const file of manifest.files.filter((item) =>
-        item.path.startsWith(`${name}/`),
+        item.path.startsWith(`${folder.name}/`),
       )) {
         const parts = file.path.split('/').slice(1);
-        await makeDirectories(staging, parts.slice(0, -1).join('/'));
-        const target = path.join(staging, ...parts);
+        await makeDirectories(folder.staging, parts.slice(0, -1).join('/'));
+        const target = path.join(folder.staging, ...parts);
         await fs.copyFile(
           path.join(snapshot, ...file.path.split('/')),
           target,
@@ -425,32 +643,51 @@ export async function restoreSnapshot(
     }
   } catch (error) {
     // Only this function's own staging copies are removed; live saves are untouched.
-    for (const staging of Object.values(staged))
+    for (const folder of staged)
       await fs
-        .rm(staging, { recursive: true, force: true })
+        .rm(folder.staging, { recursive: true, force: true })
         .catch(() => undefined);
     throw error;
   }
-  const beforePartial = path.join(root, `${token}.partial`);
-  await fs.mkdir(beforePartial);
+  for (const [name, live] of Object.entries(source.folders))
+    journal.folders.push({
+      name,
+      live,
+      staging: `${live}.restoring-${suffix}`,
+      hadLive: await realDirectory(live),
+    });
   const modified = new Map<string, number>();
   for (const file of await currentFiles(source))
     modified.set(file.path, file.modified);
-  for (const [name, live] of Object.entries(source.folders)) {
-    if (await realDirectory(live))
-      await fs.rename(live, path.join(beforePartial, name));
-    await fs.rename(staged[name], live);
+  let before: SnapshotManifest;
+  try {
+    await fs.mkdir(journal.partial);
+    await writeJournal(root, journal);
+    for (const folder of journal.folders) {
+      const moved = path.join(journal.partial, folder.name);
+      if (await realDirectory(folder.live)) await fs.rename(folder.live, moved);
+      await fs.rename(folder.staging, folder.live);
+      // Firmware is not part of saves: it stays where it was.
+      await carryExcluded(journal.exclude, folder.name, moved, folder.live);
+    }
+    before = await seal(
+      journal.partial,
+      source,
+      'before-restore',
+      now,
+      sequence,
+      modified,
+    );
+  } catch (error) {
+    await rollBack(library, source, true, now).catch(() => undefined);
+    await removeIfEmpty(journal.partial).catch(() => undefined);
+    throw error;
   }
-  const beforeManifest = await seal(
-    beforePartial,
-    source,
-    'before-restore',
-    now,
-    modified,
-  );
-  await fs.rename(beforePartial, path.join(root, token));
-  await prune(library, source.emulator);
-  return {
-    before: beforeManifest.files.length ? info(token, beforeManifest) : null,
-  };
+  // Committed: the restored saves are live and the previous ones are sealed.
+  if (before.files.length)
+    await fs.rename(journal.partial, path.join(root, token));
+  else await removeIfEmpty(journal.partial);
+  await fs.rm(path.join(root, JOURNAL));
+  if (before.files.length) await prune(library, source.emulator, token);
+  return { before: before.files.length ? info(token, before) : null };
 }

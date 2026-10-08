@@ -204,6 +204,7 @@ async function finishLifecycle() {
 
 describe('actual macOS main IPC and quit boundaries', () => {
   let fixture: ReturnType<typeof createFixture>;
+  let startupLibraryReads = 0;
   let systemVersionDescriptor: PropertyDescriptor | undefined;
   let smokeDirectory: string | undefined;
   beforeEach(async () => {
@@ -237,6 +238,15 @@ describe('actual macOS main IPC and quit boundaries', () => {
     });
     await fixture.ready;
     fixture.assertReady();
+    // Startup recovers any interrupted save restore: one library read, before
+    // any request. Request tests below start from a clean slate.
+    await finishLifecycle();
+    startupLibraryReads = fixture.readLibrary.mock.calls.length;
+    fixture.readLibrary.mockClear();
+  });
+
+  it('checks the library once at startup to recover an interrupted restore', () => {
+    expect(startupLibraryReads).toBe(1);
   });
 
   afterEach(() => {

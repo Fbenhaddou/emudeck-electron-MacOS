@@ -255,4 +255,21 @@ describe('emulator registry', () => {
     expect(stubApp.install).not.toHaveBeenCalled();
     stubApp.health.mockResolvedValue('missing' as never);
   });
+
+  it("excludes Dolphin's imported IPL firmware from save backups", () => {
+    // eslint-disable-next-line global-require
+    const { snapshotSource } = require('../app/saves');
+    // eslint-disable-next-line global-require
+    const { dolphin } = require('../../components/dolphin');
+    const source = snapshotSource(dolphin, library);
+    expect(source.folders).toEqual({
+      saves: path.join(library, 'emulators', 'dolphin', 'User', 'GC'),
+      states: path.join(library, 'emulators', 'dolphin', 'User', 'StateSaves'),
+    });
+    expect([...source.exclude].sort()).toEqual([
+      'saves/EUR/IPL.bin',
+      'saves/JAP/IPL.bin',
+      'saves/USA/IPL.bin',
+    ]);
+  });
 });

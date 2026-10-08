@@ -18,6 +18,7 @@ import { readProcessExecutables } from '../processes';
 import { acceptsOneOf } from '../security';
 import { BUSY } from './context';
 import type { AppContext } from './context';
+import { backupRefusal } from './saves';
 import type { Saves } from './saves';
 
 const stickResponses = ['standard', 'precise'] as const;
@@ -141,10 +142,11 @@ export function registerControllerHandlers(
             await readStickResponse(controllers.preferences),
           );
           return { ok: true };
-        } catch {
+        } catch (error) {
           return {
             ok: false,
             error:
+              backupRefusal(error, 'Dolphin') ||
               'The controls could not be changed. Your existing controller settings are unchanged.',
           };
         }
