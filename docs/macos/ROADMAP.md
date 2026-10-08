@@ -43,13 +43,14 @@ Adding many emulators to today's structure would multiply the cost of every late
 - [ ] One registry drives Console Mode systems, the library overview and firmware. A new emulator then touches only its own component folder plus one registry line.
   - **Done when:** adding a stub component needs no edits elsewhere except the registry and its tests.
 - [ ] **Folder-format games.** The framework currently accepts only single-file games (`validateGame` requires a regular file), but PS4 (shadPS4), PS3 (RPCS3) and Wii U (Cemu) games are folders. Support folder games end to end:
-  - component manifests declare a game as a file or as a folder with a required marker (e.g. `eboot.bin`);
+  - component manifests declare a game as a file or as a folder with required markers (PS4: `eboot.bin` and `sce_sys/param.sfo`);
+  - PS4 update (`<game>-UPDATE`/`-patch`) and DLC folders are recognised as such, not counted as games;
   - safe validation (no symlinks escaping the library, bounded scan);
   - ES-DE catalog entries;
   - library counts;
   - launch argv.
   - **Done when:** a synthetic folder game passes catalog → launch-plan → validation tests, with traversal and symlink refusals.
-- [ ] **PS4 research spike** (owner priority; shapes the framework, so do it in this phase). Research shadPS4's current state on macOS:
+- [x] **PS4 research spike** (owner priority; shapes the framework, so do it in this phase). Research shadPS4's current state on macOS:
   - official release source and whether it has a native Apple Silicon build;
   - Metal/MoltenVK path;
   - compatibility and performance on M-series chips;
@@ -61,6 +62,8 @@ Adding many emulators to today's structure would multiply the cost of every late
   - legally redistributable PS4 homebrew usable as a test fixture;
   - license.
   - Write `docs/macos/research/shadps4-component.md`, with a go / experimental / not-yet recommendation and RAM/chip minimums based on evidence.
+  - Done 2026-10-08. Verdict: framework go, emulator not yet. shadPS4's Mac build is x86_64-only (refuses to run without Rosetta), unsigned and not notarized; needs macOS 26+; 16 GB practical minimum.
+- [ ] **(owner)** Decide **Decision 012** (proposed): allow an opt-in *Experimental, unsigned upstream* tier for shadPS4? Pinned URL, size and SHA-256; Gatekeeper untouched; first launch approved by you in Privacy & Security; Rosetta only on your explicit confirmation. Alternatives: build from source signed with your Developer ID, or wait for upstream arm64. See the research doc's verdict.
 - [ ] macOS ARM64 GitHub Actions workflow.
   - 2026-10-08: `.github/workflows/macos-smoke.yml` already exists but has never run (it triggers only on pull requests and is not on the default branch).
   - Runs jest, typecheck, lint, `build:macos` (module boundary) and smoke.
