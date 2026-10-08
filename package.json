@@ -56,7 +56,7 @@
     "build:x64": "npm run build:legacy && npm exec electron-builder -- --publish never --linux --x64 && npm exec electron-builder -- --publish never --win --x64",
     "build:legacy": "concurrently \"npm run build:main\" \"npm run build:renderer\"",
     "start:legacy": "node ./.erb/scripts/check-port-in-use.js && npm run start:renderer",
-    "build:macos": "webpack --config .erb/configs/webpack.config.macos.js --mode production --json=release/build-macos/stats-macos.json && node .erb/scripts/verify-macos-modules.js release/build-macos/stats-macos.json",
+    "build:macos": "node -e \"require('fs').mkdirSync('release/build-macos',{recursive:true})\" && webpack --config .erb/configs/webpack.config.macos.js --mode production --json=release/build-macos/stats-macos.json && node .erb/scripts/verify-macos-modules.js release/build-macos/stats-macos.json",
     "start:macos": "node .erb/scripts/start-macos.js",
     "typecheck:macos": "tsc --noEmit -p tsconfig.macos.json",
     "test:macos": "jest --config jest.macos.config.js --runInBand",
