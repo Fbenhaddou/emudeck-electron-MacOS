@@ -103,3 +103,7 @@ The preload test, the main IPC test, both smoke harnesses and the type check all
 ## External drives (real volumes, throwaway images)
 
 `node .erb/scripts/verify-volumes-macos.js [--parent <dir>] [--images <dir>]` creates (or copies prepared) exFAT and APFS disk images in a fresh work folder, mounts them hidden from Finder, and checks library identity, impostor refusal, rename, snapshot/restore and the library tools on each file system. It never attaches an existing drive and detaches everything at the end. `--images` expects `ExFAT.dmg`, `ExFAT-other.dmg` (a separately created image with the same volume name, for the impostor check) and `APFS.dmg`; it attaches copies, never the originals. In some sandboxed sessions `hdiutil create` is refused; use `--images` there.
+
+## Formatting
+
+Format only the Mac boundary: `npx prettier --write src/main/macos src/main/components src/renderer/macos src/shared`. Never run prettier on `src/` as a whole: it rewrites upstream's legacy renderer files and files inside the GUI submodule (this happened once on 2026-10-08 and was reverted). Check with `git status` that `src/renderer/components` shows no `m`.

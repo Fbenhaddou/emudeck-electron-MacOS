@@ -73,7 +73,7 @@ function WelcomePage() {
   const navigate = useNavigate();
 
   const newsWS = useFetchCond(
-    `https://token.emudeck.com/news.php?branch=${branch}`,
+    `https://token.emudeck.com/news.php?branch=${branch}`
   );
   useEffect(() => {
     newsWS.post({}).then((data) => {
@@ -153,7 +153,7 @@ function WelcomePage() {
         console.log('no versioning found');
       }
       const currentVersions = JSON.parse(
-        localStorage.getItem('current_versions'),
+        localStorage.getItem('current_versions')
       );
       // If we don't have a previous log of the version, we make the one in the repo the default
       if (!currentVersions) {

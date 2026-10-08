@@ -42,15 +42,11 @@
 @keyframes glow {
   0%,
   100% {
-    box-shadow:
-      1px 1px #1d8758,
-      0 0 5px 2px var(--deck-2),
+    box-shadow: 1px 1px #1d8758, 0 0 5px 2px var(--deck-2),
       inset 2px 2px var(--deck-3);
   }
   50% {
-    box-shadow:
-      1px 1px #1d8758,
-      0 0 4px 4px var(--deck-2),
+    box-shadow: 1px 1px #1d8758, 0 0 4px 4px var(--deck-2),
       inset 2px 2px var(--deck-3);
   }
 }
