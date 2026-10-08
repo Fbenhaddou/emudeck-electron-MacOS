@@ -55,7 +55,7 @@ module.exports = {
     { from: 'release/native/SOURCE.txt', to: 'licenses/SOURCE.txt' },
     { from: 'LICENSE.md', to: 'licenses/upstream-LICENSE.md' },
     {
-      from: 'docs/research/license-inventory.md',
+      from: 'docs/macos/research/license-inventory.md',
       to: 'licenses/RESEARCH-NOTICES.md',
     },
     ...[
@@ -66,7 +66,7 @@ module.exports = {
       'homebrew-fixtures.md',
       'controllers.md',
     ].map((name) => ({
-      from: `docs/research/${name}`,
+      from: `docs/macos/research/${name}`,
       to: `licenses/${name}`,
     })),
   ],

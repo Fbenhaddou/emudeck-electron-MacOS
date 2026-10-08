@@ -61,6 +61,7 @@
     "typecheck:macos": "tsc --noEmit -p tsconfig.macos.json",
     "test:macos": "jest --config jest.macos.config.js --runInBand",
     "package:macos": "node .erb/scripts/build-macos-native.js && node .erb/scripts/write-macos-source-notice.js && npm run build:macos && electron-builder --config .erb/configs/electron-builder.macos.js --mac --arm64 --dir --publish never -c.electronDist=node_modules/electron/dist",
+    "test-app:macos": "node .erb/scripts/open-macos-test.js",
     "release:macos": "node .erb/scripts/release-macos.js",
     "dmg:macos": "node .erb/scripts/build-macos-native.js && node .erb/scripts/write-macos-source-notice.js && npm run build:macos && electron-builder --config .erb/configs/electron-builder.macos.js --mac --arm64 --publish never -c.electronDist=node_modules/electron/dist",
     "package:legacy": "cross-env node ./.erb/scripts/clean.js dist && npm run build:legacy && electron-builder build --publish never",

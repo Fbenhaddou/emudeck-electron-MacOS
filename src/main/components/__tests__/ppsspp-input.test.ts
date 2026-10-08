@@ -7,12 +7,14 @@ import { applyManagedControls, managedControls } from '../ppsspp/input';
 describe('managed PPSSPP controls', () => {
   let config: string;
   let ownership: string;
+  let root: string;
   beforeEach(async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'ppsspp-input-'));
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'ppsspp-input-'));
     config = path.join(root, 'SYSTEM');
     await fs.mkdir(config);
     ownership = path.join(root, '.emulation-workspace-input.json');
   });
+  afterEach(() => fs.rm(root, { recursive: true, force: true }));
 
   it('maps PSP L/R to the shoulder buttons PPSSPP actually reports', () => {
     const text = managedControls()['controls.ini'];

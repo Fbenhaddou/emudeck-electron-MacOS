@@ -156,7 +156,7 @@ async function run() {
       stat.isFile() && !stat.isSymbolicLink() && stat.size <= 4 * 1024 * 1024,
     );
     fixture = await fs.readFile(source);
-    // Exact official release/license provenance: docs/research/homebrew-fixtures.md.
+    // Exact official release/license provenance: docs/macos/research/homebrew-fixtures.md.
     const fixtures = new Map([
       [
         '1da85a35f494c8a491a16267be1c43097ad85e5fb5d2c9624a9f7504e8815b98',

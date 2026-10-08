@@ -535,7 +535,7 @@ async function run() {
     sameIdentity(await fs.lstat(dmgPath), dmgStat),
     'Verified image changed before attachment',
   );
-  // The exact MIT DMG license was reviewed in docs/research/es-de-artifact.md.
+  // The exact MIT DMG license was reviewed in docs/macos/research/es-de-artifact.md.
   attachAttempted = true;
   const attached = plist(
     command(

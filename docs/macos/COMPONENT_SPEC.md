@@ -10,4 +10,4 @@ Plans are NOT execution authority. At execution, resolve and verify realpaths, v
 
 Installer evolution: official source discovery → bounded verified staging → read-only image inspection → bundle/architecture/Gatekeeper checks → owned versioned machine-local installation → journaled activation. Retain prior versions until migration/rollback has been proven. No global emulator installation is overwritten. No artifact-local scripts run.
 
-Capability states are intentionally conservative. BIOS, firmware, profiles, per-game settings, update/rollback, controller mapping and ES-DE must gain real implementations and tests before their state changes to available. See source-linked research in `docs/research/components.md`.
+Capability states are intentionally conservative. BIOS, firmware, profiles, per-game settings, update/rollback, controller mapping and ES-DE must gain real implementations and tests before their state changes to available. See source-linked research in `docs/macos/research/components.md`.

@@ -22,11 +22,13 @@ The smoke run is ~50 s of real captures. Its watchdogs are 110 s (in-app) and 12
 
 ## Console Mode end-to-end (packaged)
 
-Run the packaged app with isolated data and the product's privacy identity:
+The owner's physical-test profile lives in `~/Emulation Workspace Test` (outside iCloud and the purgeable temporary folder): library with legal fixtures, installed Dolphin/ES-DE/PPSSPP, Console Mode state, and `Fixtures/PSP` (YABT, KleleAtoms, Apollo Save Tool with licenses). Open the packaged app on it with:
 
 ```
-open -n --stderr <log> --env EMULATION_SMOKE_DIR="$TMPDIR/emulation-e2e-XXXXXX" --env EMULATION_SMOKE_INTERACTIVE=1 -a "release/build-macos/mac-arm64/Emulation Workspace.app"
+npm run test-app:macos
 ```
+
+It refuses while another instance runs, and streams diagnostics to `app.log` in the profile. Interactive mode accepts this permanent folder only because it exists, is owned by you and is not group/world-writable; the automated harness is still confined to the temporary folder.
 
 Seed a library (`library.json` with device/inode identity) containing only legal fixtures and copy a verified Dolphin install with its receipt. Install ES-DE through the UI; the owner must answer the license sheet. Pass criteria per cycle, from the stderr `console-mode`/`manager-focus` JSON lines plus `lsappinfo front`: `startFocus`, every `gameFocus` and `manager-focus` are `frontmost`, frontend exit 0, playtime persists, ROM hash unchanged, no `~/ES-DE`. Electron ignores background synthetic input, so drive the window in the foreground. Fixtures kept in `$TMPDIR` are purged by macOS after a few days (Dolphin and ES-DE copies lost their Info.plist mid-session). `ditto` preserves the image's original dates, so a fresh install is born already "old"; refreshing access times alone did not prevent a second purge. After every install into a test environment run `find <env> -exec touch {} +` (access and modification times; code signatures are unaffected), and re-verify signatures before reuse. The product installs into Application Support, which is not purged.
 
@@ -50,13 +52,13 @@ After any frontend crash, check for an orphaned ES-DE (`pgrep -fl ES-DE`) and fo
 
 As of2026-10-03, the scoped Jest suite passed287 tests and the strict Mac typecheck/scoped lint passed. Production, development and packaged smoke each passed40 states, including native Electron's real preload, synthetic busy/error/recovery states and200% text zoom. Simulated installed state in a screenshot does not prove installation; the official Dolphin2609 runtime was tested separately.
 
-`npm run verify:dolphin:macos -- --fixture /absolute/path/to/verified/legal.dol --align-fixture --hold 600 --reuse-install /absolute/path/to/disposable/components/dolphin` exercises only explicitly allowed legal fixtures and disposable test data. Review the script arguments and [homebrew provenance](docs/research/homebrew-fixtures.md) first. Keep the source ZIP/license alongside the fixture. The exact original240p1.20 DOL is incompatible with Dolphin2609's section alignment; the opt-in derivative appends20 zero bytes and preserves the original. A visible menu and normal exit were observed. Preservation sentinels establish byte preservation, not gameplay-created saves.
+`npm run verify:dolphin:macos -- --fixture /absolute/path/to/verified/legal.dol --align-fixture --hold 600 --reuse-install /absolute/path/to/disposable/components/dolphin` exercises only explicitly allowed legal fixtures and disposable test data. Review the script arguments and [homebrew provenance](docs/macos/research/homebrew-fixtures.md) first. Keep the source ZIP/license alongside the fixture. The exact original240p1.20 DOL is incompatible with Dolphin2609's section alignment; the opt-in derivative appends20 zero bytes and preserves the original. A visible menu and normal exit were observed. Preservation sentinels establish byte preservation, not gameplay-created saves.
 
 The experimental frontend is not enabled or bundled in the product. Build the ARM64 Swift client with `node .erb/scripts/build-macos-native.js`, then run `node .erb/scripts/verify-console-client.js` on a normal macOS desktop host:20 real native checks cover authentication, exact-child wait beyond handshake timeout, concurrent refusal, disconnect lock retention, path/link/ownership rejection and malformed completion frames. Catalog/broker adversarial tests are also included in `test:macos`.
 
 `node .erb/scripts/verify-esde-macos.js --dmg /absolute/path/to/exact/ES-DE_3.5.0-arm64.dmg --fixture /absolute/path/to/documented/padded-240p.dol --dolphin-install /absolute/path/to/disposable/components/dolphin` retains an isolated catalog/profile/report. It validates exact artifact hashes, publisher signatures and Gatekeeper before executing either copied frontend or emulator. Its first actual frontend startup stalled in SDL's VSync wait. The later `ew-console-uRv3gg/report.json` passed the VSync-disabled developer experiment: one authenticated launch, rendered 240p menu, exact-child wait, normal Dolphin exit0, return to the frontend and normal frontend exit0. That observation required native inspection; the report alone does not prove rendering or automatic focus restoration. The original ROM hash stayed unchanged. This is not a verified VSync-disabled product default. Physical controller input, controller-only exit, focus, real saves and reboot remain separate tests.
 
-For manual native management review, `EMULATION_SMOKE_DIR` must be a fresh absolute directory lexically inside `os.tmpdir()`. Set `EMULATION_SMOKE_INTERACTIVE=1` to keep the real packaged window open with isolated preferences. Do not use a real library for fault injection. The default smoke still captures then exits under a watchdog.
+For manual native management review, `EMULATION_SMOKE_DIR` must be a fresh absolute directory lexically inside `os.tmpdir()` (or, with `EMULATION_SMOKE_INTERACTIVE=1` only, an existing owner-only folder such as the test profile). Set `EMULATION_SMOKE_INTERACTIVE=1` to keep the real packaged window open with isolated preferences. Do not use a real library for fault injection. The default smoke still captures then exits under a watchdog.
 
 ## Native savestate restoration
 

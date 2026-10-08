@@ -6,7 +6,7 @@ Keep baseline tags, source history, GUI submodule and Linux/Windows build paths.
 
 ## 002 — Dolphin / GameCube first
 
-Official Dolphin supplies a Universal macOS build and explicit --user directory isolation, making configuration versus save ownership testable. GameCube has a mature emulator and no mandatory proprietary BIOS for ordinary use. Wii, other emulators and speculative hardware tuning wait for the vertical slice. Research evidence and limitations live in docs/research/components.md.
+Official Dolphin supplies a Universal macOS build and explicit --user directory isolation, making configuration versus save ownership testable. GameCube has a mature emulator and no mandatory proprietary BIOS for ordinary use. Wii, other emulators and speculative hardware tuning wait for the vertical slice. Research evidence and limitations live in docs/macos/research/components.md.
 
 ## 003 — Neutral development identity
 

@@ -7,7 +7,7 @@ import { ComponentAdapter, ComponentPaths, LaunchRequest } from '../types';
 const homepage = 'https://dolphin-emu.org/';
 const releasePage = 'https://dolphin-emu.org/download/';
 
-// Source and rationale: docs/research/components.md. Release page is discovery metadata,
+// Source and rationale: docs/macos/research/components.md. Release page is discovery metadata,
 // not permission to download or execute arbitrary assets linked from it.
 const manifest = validateManifest(
   {

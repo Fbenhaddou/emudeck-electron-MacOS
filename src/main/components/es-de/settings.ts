@@ -28,7 +28,7 @@ export interface ManagedSettingsOptions {
   controllerType?: ControllerType;
 }
 
-/** Forced on every start; see docs/research/console-mode.md §2 Phase B. */
+/** Forced on every start; see docs/macos/research/console-mode.md §2 Phase B. */
 function forced(options: ManagedSettingsOptions): Record<string, Setting> {
   return {
     // A background ES-DE uses system() and loses the exact-child wait.

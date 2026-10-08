@@ -41,10 +41,11 @@ const adapter = {
 } as ComponentAdapter;
 
 describe('firmware manager', () => {
+  let root: string;
   let library: string;
   let source: string;
   beforeEach(async () => {
-    const root = await fs.realpath(
+    root = await fs.realpath(
       await fs.mkdtemp(path.join(os.tmpdir(), 'firmware-')),
     );
     library = path.join(root, 'Library — مكتبة');
@@ -52,6 +53,7 @@ describe('firmware manager', () => {
     source = path.join(root, 'my dump $(id).bin');
     await fs.writeFile(source, good);
   });
+  afterEach(() => fs.rm(root, { recursive: true, force: true }));
 
   it('declares Dolphin’s IPL as optional with Redump values and none for PPSSPP', () => {
     expect(dolphin.firmware?.[0]).toMatchObject({
@@ -140,7 +142,7 @@ describe('firmware manager', () => {
   });
 
   it('refuses a destination symlinked out of the library', async () => {
-    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'outside-'));
+    const outside = await fs.mkdtemp(path.join(root, 'outside-'));
     await fs.mkdir(path.join(library, 'emulators'));
     await fs.symlink(outside, path.join(library, 'emulators', 'x'));
     await expect(importFirmware(library, requirement, source)).rejects.toThrow(

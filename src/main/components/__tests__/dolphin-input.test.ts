@@ -12,12 +12,14 @@ import {
 describe('managed Dolphin input', () => {
   let config: string;
   let ownership: string;
+  let root: string;
   beforeEach(async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), 'dolphin-input-'));
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'dolphin-input-'));
     config = path.join(root, 'Config');
     await fs.mkdir(config);
     ownership = path.join(root, '.emulation-workspace-input.json');
   });
+  afterEach(() => fs.rm(root, { recursive: true, force: true }));
 
   it('maps the DualSense by name and adds a deliberate exit hold', () => {
     const files = managedInput('ps5');
@@ -128,7 +130,7 @@ describe('managed Dolphin input', () => {
   });
 
   it('refuses to follow a symlinked configuration file', async () => {
-    const outside = path.join(os.tmpdir(), `outside-${Date.now()}.ini`);
+    const outside = path.join(root, `outside-${Date.now()}.ini`);
     await fs.writeFile(outside, 'keep');
     await fs.symlink(outside, path.join(config, 'GCPadNew.ini'));
     await expect(applyManagedInput(config, ownership, 'ps5')).rejects.toThrow();

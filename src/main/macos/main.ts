@@ -11,6 +11,7 @@ import {
 } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
 import fs from 'fs/promises';
+import { lstatSync } from 'fs';
 import os from 'os';
 import path from 'path';
 import { pathToFileURL } from 'url';
@@ -82,15 +83,29 @@ app.setPath(
   path.join(app.getPath('appData'), 'Emulation Workspace'),
 );
 const smokeDirectory = process.env.EMULATION_SMOKE_DIR;
+const interactiveTest = process.env.EMULATION_SMOKE_INTERACTIVE === '1';
 if (smokeDirectory) {
   const temporaryRoot = path.resolve(os.tmpdir());
   const candidate = path.resolve(smokeDirectory);
+  // The automated harness fabricates receipts, so it stays in the temporary
+  // folder. Interactive testing installs real components and needs a profile
+  // macOS will not purge: any existing, owner-only-writable real folder.
+  const status = interactiveTest
+    ? lstatSync(candidate, { throwIfNoEntry: false })
+    : undefined;
+  const permanentProfile = Boolean(
+    status?.isDirectory() &&
+    !status.isSymbolicLink() &&
+    status.uid === process.getuid?.() &&
+    // eslint-disable-next-line no-bitwise -- Permission bits.
+    (status.mode & 0o022) === 0,
+  );
   if (
     !path.isAbsolute(smokeDirectory) ||
-    !candidate.startsWith(`${temporaryRoot}${path.sep}`)
+    (!candidate.startsWith(`${temporaryRoot}${path.sep}`) && !permanentProfile)
   ) {
     throw new Error(
-      'EMULATION_SMOKE_DIR must be an absolute directory inside the system temporary directory.',
+      'EMULATION_SMOKE_DIR must be inside the system temporary directory, or for interactive testing an existing folder you own that others cannot write.',
     );
   }
   app.setPath('userData', path.join(candidate, 'user-data'));
@@ -99,9 +114,7 @@ if (smokeDirectory) {
 // Interactive native review keeps the same isolated test data and real bridge,
 // but lets the reviewer control the window instead of running synthetic captures.
 const smoke =
-  smokeDirectory && process.env.EMULATION_SMOKE_INTERACTIVE !== '1'
-    ? new SmokeHarness(smokeDirectory)
-    : null;
+  smokeDirectory && !interactiveTest ? new SmokeHarness(smokeDirectory) : null;
 const statePath = path.join(app.getPath('userData'), 'library.json');
 const rendererURL =
   process.env.NODE_ENV === 'development'

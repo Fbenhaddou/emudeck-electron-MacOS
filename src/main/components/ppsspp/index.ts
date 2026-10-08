@@ -7,7 +7,7 @@ import { pinnedApp } from '../shared/pinned-app';
 const homepage = 'https://www.ppsspp.org/';
 const releasePage = 'https://www.ppsspp.org/download/';
 
-// Source and verified evidence: docs/research/ppsspp-component.md §0.
+// Source and verified evidence: docs/macos/research/ppsspp-component.md §0.
 const manifest = validateManifest(
   {
     schemaVersion: 1,
