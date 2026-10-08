@@ -1,12 +1,18 @@
 name: macOS ARM64 smoke
 on:
+  push:
+    branches: [macos-port]
   pull_request:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: macos-smoke-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   macos:
     runs-on: macos-15
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
