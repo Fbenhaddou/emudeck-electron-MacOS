@@ -526,8 +526,16 @@ export async function recoverInterrupted(
 ): Promise<void> {
   checkSource(source);
   const root = snapshotRoot(library, source.emulator);
-  if (await realDirectory(root))
+  if (await realDirectory(root)) {
     await settleJournal(library, source, false, now);
+    // Empty before-restore folders left by a crash before the journal existed.
+    for (const name of await fs.readdir(root))
+      if (
+        name.endsWith('-before-restore.partial') &&
+        ID.test(name.slice(0, -8))
+      )
+        await removeIfEmpty(path.join(root, name));
+  }
   // Staging copies left by a crash before the journal existed.
   for (const live of Object.values(source.folders)) {
     const parent = path.dirname(live);

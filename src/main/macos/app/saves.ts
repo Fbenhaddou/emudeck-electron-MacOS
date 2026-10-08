@@ -271,9 +271,12 @@ export function registerSavesHandlers(
             cancelId: 0,
           });
           if (choice.response !== 1) return { ok: true };
-          // Nothing can start meanwhile: every launch path checks the same busy flag.
+          // Nothing can start meanwhile from this app (every launch path checks
+          // the same busy flag), but the emulator could be opened from Finder.
           if ((await context.availableLibrary()) !== library)
             throw new Error('Library changed');
+          if (await saves.running(adapter))
+            throw new SnapshotError(`${adapter.manifest.name} is running`);
           await restoreSnapshot(library, snapshotSource(adapter, library), id);
           diagnosticEvent({ event: 'save-restore', emulator, result: 'ok' });
           return { ok: true };
