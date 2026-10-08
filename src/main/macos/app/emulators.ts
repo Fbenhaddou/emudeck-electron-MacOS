@@ -2,11 +2,13 @@ import { dialog } from 'electron';
 import path from 'path';
 import type { ActionResult } from '../../../shared/macos';
 import { dolphin } from '../../components/dolphin';
-import { ppsspp, ppssppApp } from '../../components/ppsspp';
-import { applyManagedControls } from '../../components/ppsspp/input';
-import { ppssppPreflight } from '../../components/ppsspp/preflight';
+import { managedEmulators } from '../../components/registry';
+import type { ManagedEmulator } from '../../components/registry-types';
+import { LaunchRefusal } from '../../components/shared/refusal';
+import type { ComponentAdapter } from '../../components/types';
 import { ComponentManager } from '../component-manager';
 import type { ConsoleEmulator } from '../console-host';
+import type { GameRunner } from '../console-session';
 import { diagnosticEvent } from '../diagnostics';
 import { prepareDolphinLibrary } from '../dolphin-library';
 import { EmulatorRuntime, defaultSpawn } from '../emulator-runtime';
@@ -15,7 +17,20 @@ import { BUSY } from './context';
 import type { AppContext } from './context';
 
 /** Dolphin (the original manager), the pinned-app emulators and their systems. */
-export function createEmulators(context: AppContext) {
+/** A Console Mode system for an adapter: ES-DE name plus the emulator's name. */
+function consoleSystem(adapter: ComponentAdapter) {
+  return {
+    id: adapter.system.id,
+    fullname: adapter.system.fullname,
+    label: adapter.manifest.name,
+  };
+}
+
+/** Dolphin (the original manager) plus every registered pinned-app emulator. */
+export function createEmulators(
+  context: AppContext,
+  registry: readonly ManagedEmulator[] = managedEmulators,
+) {
   const assertLibrary = async (root: string) => {
     if ((await context.availableLibrary()) !== root)
       throw new Error('Library changed or its drive is unavailable');
@@ -28,54 +43,65 @@ export function createEmulators(context: AppContext) {
     undefined,
     assertLibrary,
   );
-  const ppssppRuntime = new EmulatorRuntime(
-    ppsspp,
-    ppssppApp,
-    path.join(context.userData, 'components', 'ppsspp'),
-    {
-      spawn: defaultSpawn,
-      preflight: ppssppPreflight(),
-      // PPSSPP 1.20.4's default L/R bindings are unreachable on game controllers.
-      prepareLaunch: async (library) => {
-        const { configuration, user } = ppsspp.paths(library);
-        const result = await applyManagedControls(
-          configuration,
-          path.join(user, '.emulation-workspace-input.json'),
-        );
-        diagnosticEvent({ event: 'ppsspp-input', result: result.files });
-      },
-      assertLibrary,
-    },
-    () => context.showWindow(),
+  const pinned: Record<string, EmulatorRuntime> = Object.fromEntries(
+    registry.map((entry) => {
+      const { id } = entry.adapter.manifest;
+      const runtime = new EmulatorRuntime(
+        entry.adapter,
+        entry.app,
+        path.join(context.userData, 'components', id),
+        {
+          spawn: defaultSpawn,
+          preflight: entry.preflight || (async () => undefined),
+          prepareLaunch:
+            entry.prepareLaunch &&
+            (async (library) => {
+              const result = await entry.prepareLaunch!(library);
+              diagnosticEvent({ event: `${id}-input`, result });
+            }),
+          assertLibrary,
+        },
+        () => context.showWindow(),
+      );
+      return [id, runtime];
+    }),
   );
-  const pinned = { ppsspp: ppssppRuntime } as const;
-  const pinnedIDs = Object.keys(pinned) as Array<keyof typeof pinned>;
+  const pinnedIDs = Object.keys(pinned);
   /** Installed-emulator systems, shared by Console Mode and the library overview. */
   const systems: ConsoleEmulator[] = [
     {
-      system: { id: 'gc', fullname: 'Nintendo GameCube', label: 'Dolphin' },
+      system: consoleSystem(dolphin),
       adapter: dolphin,
       installed: async () => Boolean((await manager.status()).version),
     },
-    {
-      system: {
-        id: 'psp',
-        fullname: 'Sony PlayStation Portable',
-        label: 'PPSSPP',
-      },
-      adapter: ppsspp,
+    ...registry.map((entry) => ({
+      system: consoleSystem(entry.adapter),
+      adapter: entry.adapter,
       installed: async () =>
-        (await ppssppRuntime.status()).health === 'installed',
-    },
+        (await pinned[entry.adapter.manifest.id].status()).health ===
+        'installed',
+    })),
   ];
-  context.addBusy(() => manager.isBusy || ppssppRuntime.isBusy);
+  const runners: Record<string, GameRunner> = {
+    [dolphin.system.id]: manager,
+    ...Object.fromEntries(
+      registry.map((entry) => [
+        entry.adapter.system.id,
+        pinned[entry.adapter.manifest.id],
+      ]),
+    ),
+  };
+  context.addBusy(
+    () =>
+      manager.isBusy || Object.values(pinned).some((runtime) => runtime.isBusy),
+  );
   return {
     manager,
     pinned,
     pinnedIDs,
     systems,
     /** Console Mode runners by system id. */
-    runners: { gc: manager, psp: ppssppRuntime },
+    runners,
   };
 }
 
@@ -179,7 +205,7 @@ export function registerEmulatorHandlers(
   context.handle(
     'mac:install-emulator',
     async (args): Promise<ActionResult> => {
-      const runtime = pinned[args[0] as keyof typeof pinned];
+      const runtime = pinned[args[0] as string];
       if (context.busy()) return { ok: false, error: BUSY };
       try {
         await context.availableLibrary();
@@ -199,7 +225,7 @@ export function registerEmulatorHandlers(
   context.handle(
     'mac:play-emulator',
     async (args): Promise<ActionResult> => {
-      const runtime = pinned[args[0] as keyof typeof pinned];
+      const runtime = pinned[args[0] as string];
       if (context.busy()) return { ok: false, error: BUSY };
       return context.exclusive(async () => {
         try {
@@ -207,7 +233,7 @@ export function registerEmulatorHandlers(
           await runtime.prepareLibrary(library);
           const { manifest } = runtime.adapter;
           const choice = await dialog.showOpenDialog(context.window()!, {
-            title: `Choose a ${manifest.systems.join(', ').toUpperCase()} Game`,
+            title: `Choose a ${runtime.adapter.system.shortName} Game`,
             buttonLabel: 'Play',
             defaultPath: runtime.adapter.paths(library).roms,
             properties: ['openFile'],
@@ -229,12 +255,12 @@ export function registerEmulatorHandlers(
           await runtime.launch(library, choice.filePaths[0]);
           return { ok: true };
         } catch (error) {
-          const message = error instanceof Error ? error.message : '';
           return {
             ok: false,
-            error: message.startsWith('Your own PPSSPP')
-              ? message
-              : `The game could not start. Choose a supported file inside this library’s roms/${runtime.adapter.manifest.systems[0]} folder, check the drive is connected, and verify ${runtime.adapter.manifest.name} is installed.`,
+            error:
+              error instanceof LaunchRefusal
+                ? error.message
+                : `The game could not start. Choose a supported file inside this library’s roms/${runtime.adapter.manifest.systems[0]} folder, check the drive is connected, and verify ${runtime.adapter.manifest.name} is installed.`,
           };
         }
       });

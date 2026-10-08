@@ -38,6 +38,8 @@ const status: MacStatus = {
       id: 'ppsspp',
       name: 'PPSSPP',
       systems: ['psp'],
+      systemName: 'PSP',
+      architecture: 'universal',
       version: '1.20.4',
       health: 'installed',
       operation: 'idle',

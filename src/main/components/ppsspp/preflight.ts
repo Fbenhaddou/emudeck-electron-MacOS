@@ -1,5 +1,6 @@
 /* eslint import/prefer-default-export: "off" -- Single focused capability. */
 import { execFile } from 'child_process';
+import { LaunchRefusal } from '../shared/refusal';
 
 /**
  * A user's own PPSSPP can store a custom memory-stick folder in its global
@@ -24,7 +25,7 @@ export function ppssppPreflight(
       'UserPreferredMemoryStickDirectoryPath',
     ]);
     if (set)
-      throw new Error(
+      throw new LaunchRefusal(
         'Your own PPSSPP uses a custom memory stick folder, which would bypass this library. Clear that setting in PPSSPP, then try again.',
       );
   };

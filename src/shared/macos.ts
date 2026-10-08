@@ -19,12 +19,17 @@ export interface ConsoleStatus {
   games: number | null;
 }
 
-export type PinnedEmulatorID = 'ppsspp';
+/** A registered pinned-app emulator id; main accepts only ids in its registry. */
+export type PinnedEmulatorID = string;
 
 export interface EmulatorSummary {
   id: PinnedEmulatorID;
   name: string;
   systems: readonly string[];
+  /** Short system name for people, e.g. 'PSP'. */
+  systemName: string;
+  /** The pinned build's architecture; x64 needs Rosetta. */
+  architecture: 'arm64' | 'x64' | 'universal';
   version: string | null;
   health: 'missing' | 'installed' | 'damaged';
   operation: 'idle' | 'installing' | 'launching' | 'running';

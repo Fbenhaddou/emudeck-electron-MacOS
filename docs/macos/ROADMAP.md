@@ -41,8 +41,11 @@ Adding many emulators to today's structure would multiply the cost of every late
   - the main-ipc channel list;
   - both smoke harness lists.
   - Done 2026-10-08: `src/shared/macos-bridge-inventory.json` (method → channel → argument rule). The preload test, main-ipc test (exact channel set), both smoke harnesses and a compile-time `MacAPI` check read it; renderer mocks are type-checked against `MacAPI`. Mutation-tested: a missing preload method fails the tests, a stray inventory entry fails typecheck.
-- [ ] One registry drives Console Mode systems, the library overview and firmware. A new emulator then touches only its own component folder plus one registry line.
+- [x] One registry drives Console Mode systems, the library overview and firmware. A new emulator then touches only its own component folder plus one registry line.
   - **Done when:** adding a stub component needs no edits elsewhere except the registry and its tests.
+  - Done 2026-10-08: `src/main/components/registry.ts` lists `ManagedEmulator` entries (adapter, pinned app, preflight, managed controls); each adapter declares its `system` (id, ES-DE full name, short name). `registry.test.ts` registers a stub and proves it reaches Console Mode systems and runners, the library overview, firmware, status and the install/play/firmware allowlists. Plain-language preflight refusals use `LaunchRefusal`. The Emulators page labels builds from the manifest architecture (an Intel build says it needs Rosetta).
+- [ ] (proposed) Console Mode still requires Dolphin to be installed, and ES-DE starts on the GameCube list (`StartupSystem` default). Open it with any installed emulator, and start on the first available system.
+- [ ] (proposed) Move Dolphin onto the same registry (EmulatorRuntime + a pinned app), so it stops being a special case in main and the Emulators page.
 - [ ] **Folder-format games.** The framework currently accepts only single-file games (`validateGame` requires a regular file), but PS4 (shadPS4), PS3 (RPCS3) and Wii U (Cemu) games are folders. Support folder games end to end:
   - component manifests declare a game as a file or as a folder with required markers (PS4: `eboot.bin` and `sce_sys/param.sfo`);
   - PS4 update (`<game>-UPDATE`/`-patch`) and DLC folders are recognised as such, not counted as games;

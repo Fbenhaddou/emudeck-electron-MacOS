@@ -14,8 +14,6 @@ import { BUSY } from './context';
 import type { AppContext } from './context';
 import type { Emulators } from './emulators';
 
-const systemNames: Record<string, string> = { gc: 'GameCube', psp: 'PSP' };
-
 export function libraryOverview(
   context: AppContext,
   { systems: emulators }: Emulators,
@@ -31,7 +29,7 @@ export function libraryOverview(
     const systems = await Promise.all(
       emulators.map(async (emulator) => ({
         id: emulator.system.id,
-        name: systemNames[emulator.system.id] || emulator.system.fullname,
+        name: emulator.adapter.system.shortName,
         emulator: emulator.system.label,
         installed: await emulator.installed().catch(() => false),
         games: games.filter((game) => game.system === emulator.system.id)

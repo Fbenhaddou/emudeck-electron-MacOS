@@ -147,6 +147,7 @@ describe('EmulatorRuntime (PPSSPP)', () => {
     await expect(r.status()).resolves.toMatchObject({
       id: 'ppsspp',
       systems: ['psp'],
+      systemName: 'PSP',
       version: null,
       health: 'missing',
     });

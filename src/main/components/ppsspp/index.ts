@@ -60,6 +60,11 @@ function paths(libraryRoot: string): ComponentPaths {
 
 export const ppsspp: ComponentAdapter = Object.freeze({
   manifest,
+  system: Object.freeze({
+    id: 'psp',
+    fullname: 'Sony PlayStation Portable',
+    shortName: 'PSP',
+  }),
   paths,
   planLaunch: ({
     libraryRoot,

@@ -3,11 +3,8 @@ import path from 'path';
 import { spawn } from 'child_process';
 import type { ChildProcess, SpawnOptions } from 'child_process';
 import type { ComponentAdapter } from '../components/types';
-import type {
-  AppHealth,
-  InstalledApp,
-  PinnedInstallOptions,
-} from '../components/shared/pinned-app';
+import type { AppHealth } from '../components/shared/pinned-app';
+import type { PinnedAppInstaller } from '../components/registry-types';
 
 export type EmulatorOperation = 'idle' | 'installing' | 'launching' | 'running';
 
@@ -15,6 +12,9 @@ export interface EmulatorStatus {
   id: string;
   name: string;
   systems: readonly string[];
+  /** Short system name for people, e.g. 'PSP'. */
+  systemName: string;
+  architecture: 'arm64' | 'x64' | 'universal';
   version: string | null;
   health: AppHealth;
   operation: EmulatorOperation;
@@ -25,13 +25,7 @@ export interface EmulatorExit {
   signal: NodeJS.Signals | null;
 }
 
-/** The pinned-app installer surface a runtime needs (see shared/pinned-app). */
-export interface PinnedAppInstaller {
-  spec: { version: string };
-  health(root: string): Promise<AppHealth>;
-  installed(root: string): Promise<InstalledApp | null>;
-  install(root: string, options?: PinnedInstallOptions): Promise<InstalledApp>;
-}
+export type { PinnedAppInstaller } from '../components/registry-types';
 
 /* eslint-disable no-unused-vars -- Names document injected contracts. */
 export interface RuntimeDependencies {
@@ -91,6 +85,8 @@ export class EmulatorRuntime {
       id: this.adapter.manifest.id,
       name: this.adapter.manifest.name,
       systems: this.adapter.manifest.systems,
+      systemName: this.adapter.system.shortName,
+      architecture: this.adapter.manifest.architecture,
       version: health === 'missing' ? null : this.app.spec.version,
       health,
       operation: this.operation,

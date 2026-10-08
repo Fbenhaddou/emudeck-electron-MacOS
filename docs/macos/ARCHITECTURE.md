@@ -33,3 +33,5 @@ Machine state belongs in Application Support/Emulation Workspace. User-chosen li
 Packaging while the owner's test app is running from `release/build-macos/mac-arm64` would replace a bundle in use. Package into `release/build-macos/staging` instead (`-c.directories.output=release/build-macos/staging`; the folder is git-ignored).
 
 The renderer mirrors this: `src/renderer/macos/MacApp.tsx` is the window shell (navigation, status polling, shared action state), `controls.tsx` holds the shared controls (`Hero`, `Segmented`, `Spinner`, `MiddlePath`, `Caution`, `Symbol`) and `pages/` has one component per page, each receiving `PageProps`.
+
+Emulators: `src/main/components/registry.ts` is the one list of pinned-app emulators. A new emulator is a component folder (adapter with `system`, pinned app, optional preflight and managed controls, exported as a `ManagedEmulator`) plus one registry line; `src/main/macos/app/emulators.ts` builds runtimes, Console Mode systems and allowlists from it. Dolphin still has its own `ComponentManager`.

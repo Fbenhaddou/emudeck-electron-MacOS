@@ -1,4 +1,4 @@
-import type { MacStatus } from '../../../shared/macos';
+import type { EmulatorSummary, MacStatus } from '../../../shared/macos';
 import { Hero, Spinner } from '../controls';
 import type { PageProps } from './types';
 
@@ -12,6 +12,18 @@ const operationMessages: Record<
   running: 'Dolphin is running. Quit the game to return here.',
   resetting: 'Resetting Dolphin settings… Games and saves stay in place.',
 };
+
+const buildNotes: Record<EmulatorSummary['architecture'], string> = {
+  universal: 'Official Universal build · Native Apple Silicon',
+  arm64: 'Official build · Native Apple Silicon',
+  x64: 'Official Intel build · Needs Rosetta',
+};
+
+/** 'A', 'A and B', 'A, B and C'. */
+function list(items: readonly string[]): string {
+  if (items.length < 2) return items.join('');
+  return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
 
 export default function EmulatorsPage({
   status,
@@ -32,11 +44,19 @@ export default function EmulatorsPage({
     Boolean(operationMessage) &&
     dolphinOperation !== 'running' &&
     action !== 'choosing-game';
+  const emulatorNames = list([
+    'Dolphin',
+    ...status.emulators.map((emulator) => emulator.name),
+  ]);
+  const systemNames = list([
+    'GameCube',
+    ...status.emulators.map((emulator) => emulator.systemName),
+  ]);
   return (
     <>
       <Hero page="Emulators" tint="indigo" title="Emulators">
-        Dolphin and PPSSPP bring GameCube and PSP games and homebrew to your
-        Mac. Add your own legally obtained games.
+        {emulatorNames} bring {systemNames} games and homebrew to your Mac. Add
+        your own legally obtained games.
       </Hero>
       <section
         className="group"
@@ -123,11 +143,11 @@ export default function EmulatorsPage({
                 <h3>{emulator.name}</h3>
                 <p>
                   {emulator.health === 'installed' &&
-                    `${system.toUpperCase()} · Version ${emulator.version}`}
+                    `${emulator.systemName} · Version ${emulator.version}`}
                   {emulator.health === 'damaged' &&
                     'Needs repair · Some application files are missing or changed'}
                   {emulator.health === 'missing' &&
-                    `${system.toUpperCase()} · Official Universal build · Native Apple Silicon`}
+                    `${emulator.systemName} · ${buildNotes[emulator.architecture]}`}
                 </p>
               </div>
               {emulator.health !== 'installed' && (
@@ -160,7 +180,7 @@ export default function EmulatorsPage({
                 <div className="row-text">
                   <h3>Play a game</h3>
                   <p>
-                    Add {system.toUpperCase()} games to your library’s roms/
+                    Add {emulator.systemName} games to your library’s roms/
                     {system} folder.
                   </p>
                 </div>
@@ -209,8 +229,8 @@ export default function EmulatorsPage({
         </details>
       )}
       <p className="footnote">
-        Console Mode plays every system whose emulator is installed: GameCube
-        and PSP.
+        Console Mode plays every system whose emulator is installed:{' '}
+        {systemNames}.
       </p>
     </>
   );

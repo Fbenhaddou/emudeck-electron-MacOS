@@ -89,8 +89,20 @@ export interface FirmwareRequirement {
   knownDumps: readonly FirmwareDump[];
 }
 
+/** How a system is named for people and for ES-DE. */
+export interface SystemInfo {
+  /** ES-DE system id and library folder name, e.g. 'psp' (roms/psp). */
+  id: string;
+  /** ES-DE full name, e.g. 'Sony PlayStation Portable'. */
+  fullname: string;
+  /** Short name shown in Management Mode, e.g. 'PSP'. */
+  shortName: string;
+}
+
 export interface ComponentAdapter {
   manifest: ComponentManifest;
+  /** The system this component plays; its id is one of manifest.systems. */
+  system: SystemInfo;
   /** Firmware/BIOS this component can use; absent when none is needed. */
   firmware?: readonly FirmwareRequirement[];
   paths: (libraryRoot: string) => ComponentPaths;

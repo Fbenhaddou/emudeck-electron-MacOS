@@ -111,6 +111,11 @@ const firmware = Object.freeze([
 
 export const dolphin: ComponentAdapter = Object.freeze({
   manifest,
+  system: Object.freeze({
+    id: 'gc',
+    fullname: 'Nintendo GameCube',
+    shortName: 'GameCube',
+  }),
   firmware,
   paths,
   planLaunch: ({
