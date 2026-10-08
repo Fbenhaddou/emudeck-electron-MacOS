@@ -4,6 +4,7 @@ A Mac-native fork of EmuDeck's Electron app: a Management Mode styled after Syst
 
 | Document | What it covers |
 | --- | --- |
+| [ROADMAP.md](ROADMAP.md) | Phased plan with checkboxes — what's next and when it counts as done |
 | [STATUS.md](STATUS.md) | What works, what is partial, untested or blocked — with evidence |
 | [TESTING.md](TESTING.md) | Test commands, physical-test profile, end-to-end procedures |
 | [DECISIONS.md](DECISIONS.md) | Numbered design decisions and their reasons |
