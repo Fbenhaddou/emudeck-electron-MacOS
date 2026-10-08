@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import os from 'os';
 import path from 'path';
 import type { MenuItemConstructorOptions } from 'electron';
+import { invokeChannels } from '../../../shared/macos-bridge';
 
 interface Frame {
   url: string;
@@ -12,26 +13,7 @@ interface Caller {
   senderFrame: Frame;
 }
 type Handler = (event: Caller, ...args: unknown[]) => Promise<unknown>;
-const channels = [
-  'mac:status',
-  'mac:install-dolphin',
-  'mac:play-game',
-  'mac:reset-dolphin',
-  'mac:choose-library',
-  'mac:reveal-library',
-  'mac:recover-library-settings',
-  'mac:install-console',
-  'mac:enter-console',
-  'mac:controllers',
-  'mac:set-stick-response',
-  'mac:use-recommended-controls',
-  'mac:install-emulator',
-  'mac:play-emulator',
-  'mac:library-overview',
-  'mac:add-firmware',
-  'mac:reveal-system',
-  'mac:export-diagnostics',
-];
+const channels = invokeChannels;
 
 function createFixture() {
   const handlers = new Map<string, Handler>();
@@ -312,6 +294,13 @@ describe('actual macOS main IPC and quit boundaries', () => {
       fixture.assertNoProtectedWork();
     },
   );
+
+  it('registers exactly the manifest channels, each once', () => {
+    expect([...fixture.handlers.keys()].sort()).toEqual(channels);
+    expect(fixture.electron.ipcMain.handle).toHaveBeenCalledTimes(
+      channels.length,
+    );
+  });
 
   it.each(channels)(
     'rejects a foreign WebContents before performing work: %s',

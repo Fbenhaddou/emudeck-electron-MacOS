@@ -1,6 +1,22 @@
 /** @jest-environment node */
 import { EventEmitter } from 'events';
 import type { MacAPI } from '../../../shared/macos';
+import {
+  bridgeComplete,
+  bridgeMethodNames,
+  bridgeMethods,
+} from '../../../shared/macos-bridge';
+
+const zeroArgument = bridgeMethodNames
+  .filter((name) => bridgeMethods[name].argument === 'none')
+  .map((name) => [name, bridgeMethods[name].channel]);
+const oneArgument = bridgeMethodNames
+  .filter((name) => bridgeMethods[name].argument === 'one')
+  .map((name) => [
+    name,
+    bridgeMethods[name].channel,
+    bridgeMethods[name].sample as string,
+  ]);
 
 describe('actual frozen macOS preload bridge', () => {
   let api: MacAPI;
@@ -23,91 +39,52 @@ describe('actual frozen macOS preload bridge', () => {
     });
   });
 
-  it('exposes only nineteen fixed methods and no generic IPC primitive', () => {
+  it('exposes exactly the manifest methods and no generic IPC primitive', () => {
+    expect(bridgeComplete).toBe(true);
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     expect(exposeInMainWorld).toHaveBeenCalledWith('mac', api);
     expect(Object.isFrozen(api)).toBe(true);
-    expect(Object.keys(api).sort()).toEqual([
-      'addFirmware',
-      'chooseLibrary',
-      'enterConsole',
-      'exportDiagnostics',
-      'getControllers',
-      'getLibraryOverview',
-      'getStatus',
-      'installConsole',
-      'installDolphin',
-      'installEmulator',
-      'onRefreshStatus',
-      'playEmulator',
-      'playGame',
-      'recoverLibrarySettings',
-      'resetDolphin',
-      'revealLibrary',
-      'revealSystem',
-      'setStickResponse',
-      'useRecommendedControls',
-    ]);
+    expect(Object.keys(api).sort()).toEqual(bridgeMethodNames);
   });
 
-  it.each([
-    ['getStatus', 'mac:status'],
-    ['chooseLibrary', 'mac:choose-library'],
-    ['revealLibrary', 'mac:reveal-library'],
-    ['installDolphin', 'mac:install-dolphin'],
-    ['playGame', 'mac:play-game'],
-    ['resetDolphin', 'mac:reset-dolphin'],
-    ['recoverLibrarySettings', 'mac:recover-library-settings'],
-    ['installConsole', 'mac:install-console'],
-    ['enterConsole', 'mac:enter-console'],
-    ['getControllers', 'mac:controllers'],
-    ['useRecommendedControls', 'mac:use-recommended-controls'],
-    ['getLibraryOverview', 'mac:library-overview'],
-    ['exportDiagnostics', 'mac:export-diagnostics'],
-  ])('does not forward renderer arguments from %s', async (method, channel) => {
-    const call = api[method as Exclude<keyof MacAPI, 'onRefreshStatus'>] as (
-      ...args: unknown[]
-    ) => Promise<unknown>;
-    await call({ command: 'untrusted', path: '/other' }, 'other-channel');
-    expect(ipc.invoke).toHaveBeenCalledTimes(1);
-    expect(ipc.invoke).toHaveBeenCalledWith(channel);
+  it('covers every manifest method with an argument rule test', () => {
+    expect(
+      zeroArgument.length +
+        oneArgument.length +
+        bridgeMethodNames.filter(
+          (name) => bridgeMethods[name].argument === 'callback',
+        ).length,
+    ).toBe(bridgeMethodNames.length);
+    expect(
+      bridgeMethodNames.filter(
+        (name) => bridgeMethods[name].argument === 'callback',
+      ),
+    ).toEqual(['onRefreshStatus']);
   });
 
-  it.each([
-    ['installEmulator', 'mac:install-emulator'],
-    ['playEmulator', 'mac:play-emulator'],
-  ])('forwards exactly one emulator id from %s', async (method, channel) => {
-    const call = api[method as 'installEmulator'] as unknown as (
-      ...args: unknown[]
-    ) => Promise<unknown>;
-    await call('ppsspp', '/Applications/Other.app', 'extra');
-    expect(ipc.invoke).toHaveBeenCalledTimes(1);
-    expect(ipc.invoke).toHaveBeenCalledWith(channel, 'ppsspp');
-  });
+  it.each(zeroArgument)(
+    'does not forward renderer arguments from %s',
+    async (method, channel) => {
+      const call = api[method as Exclude<keyof MacAPI, 'onRefreshStatus'>] as (
+        ...args: unknown[]
+      ) => Promise<unknown>;
+      await call({ command: 'untrusted', path: '/other' }, 'other-channel');
+      expect(ipc.invoke).toHaveBeenCalledTimes(1);
+      expect(ipc.invoke).toHaveBeenCalledWith(channel);
+    },
+  );
 
-  it.each([
-    ['addFirmware', 'mac:add-firmware', 'gc-ipl'],
-    ['revealSystem', 'mac:reveal-system', 'gc'],
-  ])('forwards exactly one id from %s', async (method, channel, id) => {
-    const call = api[method as 'addFirmware'] as unknown as (
-      ...args: unknown[]
-    ) => Promise<unknown>;
-    await call(id, '/Users/someone/IPL.bin', 'extra');
-    expect(ipc.invoke).toHaveBeenCalledTimes(1);
-    expect(ipc.invoke).toHaveBeenCalledWith(channel, id);
-  });
-
-  it('forwards exactly one value for stick response on its fixed channel', async () => {
-    const call = api.setStickResponse as unknown as (
-      ...args: unknown[]
-    ) => Promise<unknown>;
-    await call('precise', { command: 'untrusted' }, 'other-channel');
-    expect(ipc.invoke).toHaveBeenCalledTimes(1);
-    expect(ipc.invoke).toHaveBeenCalledWith(
-      'mac:set-stick-response',
-      'precise',
-    );
-  });
+  it.each(oneArgument)(
+    'forwards exactly one value from %s on %s',
+    async (method, channel, sample) => {
+      const call = api[method as 'addFirmware'] as unknown as (
+        ...args: unknown[]
+      ) => Promise<unknown>;
+      await call(sample, '/Users/someone/IPL.bin', { command: 'untrusted' });
+      expect(ipc.invoke).toHaveBeenCalledTimes(1);
+      expect(ipc.invoke).toHaveBeenCalledWith(channel, sample);
+    },
+  );
 
   it.each([null, undefined, 'callback', 1, {}, []])(
     'rejects a nonfunction refresh subscriber: %p',

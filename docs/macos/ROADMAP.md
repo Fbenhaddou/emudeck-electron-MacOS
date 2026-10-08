@@ -36,10 +36,11 @@ Adding many emulators to today's structure would multiply the cost of every late
   - Done 2026-10-08: `main.ts` is 98 lines; modules in `src/main/macos/app/` (ARCHITECTURE.md). 576 tests, typecheck, lint, production and packaged smoke unchanged.
 - [x] Split `src/renderer/macos/MacApp.tsx` (~1,500 lines) into one component per page, plus shared controls (`Hero`, `Segmented`, `Spinner`…).
   - Done 2026-10-08: `MacApp.tsx` (window shell, 452 lines), `controls.tsx`, `pages/*Page.tsx` with shared `PageProps`. Tests, production and packaged smoke unchanged; captures reviewed.
-- [ ] Generate the four IPC/bridge inventories from one source, so a new method can't be forgotten in one of them:
+- [x] Generate the four IPC/bridge inventories from one source, so a new method can't be forgotten in one of them:
   - the preload test;
   - the main-ipc channel list;
   - both smoke harness lists.
+  - Done 2026-10-08: `src/shared/macos-bridge-inventory.json` (method → channel → argument rule). The preload test, main-ipc test (exact channel set), both smoke harnesses and a compile-time `MacAPI` check read it; renderer mocks are type-checked against `MacAPI`. Mutation-tested: a missing preload method fails the tests, a stray inventory entry fails typecheck.
 - [ ] One registry drives Console Mode systems, the library overview and firmware. A new emulator then touches only its own component folder plus one registry line.
   - **Done when:** adding a stub component needs no edits elsewhere except the registry and its tests.
 - [ ] **Folder-format games.** The framework currently accepts only single-file games (`validateGame` requires a regular file), but PS4 (shadPS4), PS3 (RPCS3) and Wii U (Cemu) games are folders. Support folder games end to end:

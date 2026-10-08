@@ -77,27 +77,15 @@ async function run() {
     );
   }
   const preferences = report.webPreferences || {};
-  const bridgeMethods = [
-    'addFirmware',
-    'chooseLibrary',
-    'enterConsole',
-    'exportDiagnostics',
-        'getControllers',
-    'getLibraryOverview',
-    'getStatus',
-    'installConsole',
-    'installDolphin',
-        'installEmulator',
-    'onRefreshStatus',
-    'playEmulator',
-        'playGame',
-    'recoverLibrarySettings',
-    'resetDolphin',
-    'revealLibrary',
-    'revealSystem',
-        'setStickResponse',
-        'useRecommendedControls',
-  ];
+  // The one bridge inventory (src/shared/macos-bridge-inventory.json).
+  const bridgeMethods = Object.keys(
+    JSON.parse(
+      await fs.readFile(
+        path.join(__dirname, '../../src/shared/macos-bridge-inventory.json'),
+        'utf8',
+      ),
+    ).methods,
+  ).sort();
   const expectedScreenshots = [
     ...[
       'window',

@@ -1,0 +1,59 @@
+{
+  "about": "The one inventory of the Mac preload bridge. preload.ts stays hand-written; the preload test (via macos-bridge.ts), main IPC test and both smoke harnesses check against this list. argument: none = zero arguments; one = exactly one literal that main checks against an allowlist (sample is a valid value); callback = event subscription.",
+  "methods": {
+    "addFirmware": {
+      "channel": "mac:add-firmware",
+      "argument": "one",
+      "sample": "gc-ipl"
+    },
+    "chooseLibrary": { "channel": "mac:choose-library", "argument": "none" },
+    "enterConsole": { "channel": "mac:enter-console", "argument": "none" },
+    "exportDiagnostics": {
+      "channel": "mac:export-diagnostics",
+      "argument": "none"
+    },
+    "getControllers": { "channel": "mac:controllers", "argument": "none" },
+    "getLibraryOverview": {
+      "channel": "mac:library-overview",
+      "argument": "none"
+    },
+    "getStatus": { "channel": "mac:status", "argument": "none" },
+    "installConsole": { "channel": "mac:install-console", "argument": "none" },
+    "installDolphin": { "channel": "mac:install-dolphin", "argument": "none" },
+    "installEmulator": {
+      "channel": "mac:install-emulator",
+      "argument": "one",
+      "sample": "ppsspp"
+    },
+    "onRefreshStatus": {
+      "channel": "mac:refresh-status",
+      "argument": "callback"
+    },
+    "playEmulator": {
+      "channel": "mac:play-emulator",
+      "argument": "one",
+      "sample": "ppsspp"
+    },
+    "playGame": { "channel": "mac:play-game", "argument": "none" },
+    "recoverLibrarySettings": {
+      "channel": "mac:recover-library-settings",
+      "argument": "none"
+    },
+    "resetDolphin": { "channel": "mac:reset-dolphin", "argument": "none" },
+    "revealLibrary": { "channel": "mac:reveal-library", "argument": "none" },
+    "revealSystem": {
+      "channel": "mac:reveal-system",
+      "argument": "one",
+      "sample": "gc"
+    },
+    "setStickResponse": {
+      "channel": "mac:set-stick-response",
+      "argument": "one",
+      "sample": "precise"
+    },
+    "useRecommendedControls": {
+      "channel": "mac:use-recommended-controls",
+      "argument": "none"
+    }
+  }
+}

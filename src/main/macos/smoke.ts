@@ -3,6 +3,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import type { MacStatus } from '../../shared/macos';
+import { bridgeMethodNames } from '../../shared/macos-bridge';
 import { setWindowZoom } from './chrome';
 import { selectLibrary } from './library';
 
@@ -378,27 +379,7 @@ export default class SmokeHarness {
       frozen: boolean;
       callbackTypeRejected: boolean;
     };
-    const expectedMethods = [
-      'addFirmware',
-      'chooseLibrary',
-      'enterConsole',
-      'exportDiagnostics',
-      'getControllers',
-      'getLibraryOverview',
-      'getStatus',
-      'installConsole',
-      'installDolphin',
-      'installEmulator',
-      'onRefreshStatus',
-      'playEmulator',
-      'playGame',
-      'recoverLibrarySettings',
-      'resetDolphin',
-      'revealLibrary',
-      'revealSystem',
-      'setStickResponse',
-      'useRecommendedControls',
-    ];
+    const expectedMethods = bridgeMethodNames;
     if (
       !bridge.frozen ||
       !bridge.callbackTypeRejected ||

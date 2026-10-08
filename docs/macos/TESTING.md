@@ -91,3 +91,11 @@ The final unsigned DMG also passed `hdiutil verify` image checksums. Mounted ima
 ## Firmware import (owner-run)
 
 Firmware tests use synthetic random bytes with a declared CRC32; no proprietary file is ever stored in the repository. To check a real import, the owner uses a GameCube IPL they dumped from their own console: Firmware › GameCube IPL › Add…, then confirm the row reads "Added and recognized: <region>", the original file is unchanged, and the library contains `emulators/dolphin/User/GC/<region>/IPL.bin`. Adding an unrelated file must show "not a known good … dump" and change nothing. Replacing a different existing file must leave `IPL.bin.before-<timestamp>` beside it.
+
+## Adding a bridge method
+
+1. Add it to `MacAPI` in `src/shared/macos.ts` and hand-write it in `preload.ts` (zero arguments, or one literal that main checks with `acceptsOneOf`).
+2. Add one line to `src/shared/macos-bridge-inventory.json` with its channel, argument rule and, for one-argument methods, a valid sample.
+3. Register the handler in the domain module under `src/main/macos/app/`, and add the mock to the renderer test.
+
+The preload test, the main IPC test, both smoke harnesses and the type check all read the inventory, so a method missing from any of them fails a gate.

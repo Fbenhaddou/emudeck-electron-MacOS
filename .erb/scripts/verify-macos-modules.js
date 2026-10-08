@@ -21,6 +21,8 @@ const allowedFirstParty = [
   'src/main/components/',
   'src/renderer/macos/',
   'src/shared/macos.ts',
+  'src/shared/macos-bridge.ts',
+  'src/shared/macos-bridge-inventory.json',
 ];
 
 const stats = JSON.parse(fs.readFileSync(statsFile, 'utf8'));
