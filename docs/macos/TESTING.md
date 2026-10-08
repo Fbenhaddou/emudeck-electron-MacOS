@@ -14,7 +14,7 @@ Before distribution: real official artifact tests, corrupted download/archive te
 
 Development smoke: `PORT=4318 npm run smoke:macos -- --dev`. Run builds sequentially: Mac and legacy targets intentionally share generated dist. Scoped typecheck checks all new sources strictly while skipping incompatible third-party declaration checking; legacy full typecheck remains failing. Smoke reports and PNGs stay in fresh OS temporary directories and use isolated userData. They are not copies of the user's library.
 
-macos-15 is an ARM64 hosted runner per [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners); workflow execution is not yet verified. Physical controller, VoiceOver, external-volume and signing tests cannot be inferred from CI.
+macos-15 is an ARM64 hosted runner per [GitHub's runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners). The workflow runs on every push to macos-port and passed all steps on 2026-10-08 (run 37791094632). Use `npm run lint:macos` (what CI runs), not a bare `npx eslint`. Physical controller, VoiceOver, external-volume and signing tests cannot be inferred from CI.
 
 ## Smoke harness notes
 

@@ -69,8 +69,8 @@ Adding many emulators to today's structure would multiply the cost of every late
   - Write `docs/macos/research/shadps4-component.md`, with a go / experimental / not-yet recommendation and RAM/chip minimums based on evidence.
   - Done 2026-10-08. Verdict: framework go, emulator not yet. shadPS4's Mac build is x86_64-only (refuses to run without Rosetta), unsigned and not notarized; needs macOS 26+; 16 GB practical minimum.
 - [ ] **(owner)** Decide **Decision 012** (proposed): allow an opt-in *Experimental, unsigned upstream* tier for shadPS4? Pinned URL, size and SHA-256; Gatekeeper untouched; first launch approved by you in Privacy & Security; Rosetta only on your explicit confirmation. Alternatives: build from source signed with your Developer ID, or wait for upstream arm64. See the research doc's verdict.
-- [ ] macOS ARM64 GitHub Actions workflow.
-  - 2026-10-08: `.github/workflows/macos-smoke.yml` already exists but has never run (it triggers only on pull requests and is not on the default branch).
+- [x] macOS ARM64 GitHub Actions workflow.
+  - Done 2026-10-08: `.github/workflows/macos-smoke.yml` now also runs on pushes to macos-port. Run 37791094632 passed every step on GitHub's macos-15 ARM64 runner (typecheck, lint, tests, build, smoke, unsigned package, packaged smoke). Its first runs found two real bugs the local machine hid: `build:macos` failed in a clean checkout, and the documented everyday lint command skipped a file `lint:macos` checks.
   - Runs jest, typecheck, lint, `build:macos` (module boundary) and smoke.
   - Existing Linux/Windows CI untouched.
 
