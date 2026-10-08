@@ -13,6 +13,7 @@ import registerDiagnosticsHandlers from './app/diagnostics';
 import { createEmulators, registerEmulatorHandlers } from './app/emulators';
 import registerFirmwareHandlers from './app/firmware';
 import { libraryOverview, registerLibraryHandlers } from './app/library';
+import { createSaves, registerSavesHandlers } from './app/saves';
 import statusReader from './app/status';
 import { startApplication } from './app/window';
 import SmokeHarness from './smoke';
@@ -74,14 +75,16 @@ const context = createContext({
     : path.resolve(app.getAppPath(), '..', 'native'),
 });
 const emulators = createEmulators(context);
-const consoleMode = createConsole(context, emulators);
+const saves = createSaves(context, emulators);
+const consoleMode = createConsole(context, emulators, saves);
 const controllers = createControllers(context);
 const getStatus = statusReader(context, emulators, consoleMode);
 const overview = libraryOverview(context, emulators);
 
-registerEmulatorHandlers(context, emulators);
+registerEmulatorHandlers(context, emulators, saves);
+registerSavesHandlers(context, emulators, saves);
 registerConsoleHandlers(context, consoleMode, emulators);
-registerControllerHandlers(context, controllers);
+registerControllerHandlers(context, controllers, saves);
 registerLibraryHandlers(context, emulators, overview);
 registerFirmwareHandlers(context, emulators);
 registerDiagnosticsHandlers(context, {

@@ -310,6 +310,11 @@ main {
   flex: 1;
   min-width: 0;
 }
+.row-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
 .row h3 {
   display: flex;
   align-items: center;
@@ -428,6 +433,9 @@ main {
 }
 .tile.orange {
   background: linear-gradient(#ffad33, #f27a00);
+}
+.tile.teal {
+  background: linear-gradient(#3fcfc9, #0f9c9a);
 }
 
 .footnote {

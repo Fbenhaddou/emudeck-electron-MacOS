@@ -25,6 +25,14 @@ const api: MacAPI = Object.freeze({
   // Single forwarded ids; main accepts only ids its components declare.
   addFirmware: (id: string) => ipcRenderer.invoke('mac:add-firmware', id),
   revealSystem: (id: string) => ipcRenderer.invoke('mac:reveal-system', id),
+  getSaves: () => ipcRenderer.invoke('mac:saves'),
+  // Single forwarded ids; main accepts only its emulators and existing backups.
+  backUpSaves: (emulator: string) =>
+    ipcRenderer.invoke('mac:back-up-saves', emulator),
+  restoreSaves: (target: string) =>
+    ipcRenderer.invoke('mac:restore-saves', target),
+  revealSaves: (emulator: string) =>
+    ipcRenderer.invoke('mac:reveal-saves', emulator),
   getStatus: () => ipcRenderer.invoke('mac:status'),
   onRefreshStatus: (callback: () => void) => {
     if (typeof callback !== 'function')

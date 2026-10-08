@@ -5,6 +5,7 @@ export type Page =
   | 'Library'
   | 'Emulators'
   | 'Firmware'
+  | 'Saves'
   | 'Console Mode'
   | 'Controllers'
   | 'This Mac'
@@ -12,7 +13,14 @@ export type Page =
 export const sections: { title: string; pages: Page[] }[] = [
   {
     title: 'Workspace',
-    pages: ['Library', 'Emulators', 'Firmware', 'Console Mode', 'Controllers'],
+    pages: [
+      'Library',
+      'Emulators',
+      'Firmware',
+      'Saves',
+      'Console Mode',
+      'Controllers',
+    ],
   },
   { title: 'System', pages: ['This Mac', 'Development'] },
 ];
@@ -20,6 +28,7 @@ export const pages = sections.flatMap((section) => section.pages);
 const icons: Record<Page, string> = {
   Library: 'M3 7V5h6l2 2h10v13H3V7Z',
   Emulators: 'M6 7h12l3 10-3 2-4-4h-4l-4 4-3-2L6 7Zm1 4h4m-2-2v4m7-3h.1m2 2h.1',
+  Saves: 'M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4M12 8v4l3 2',
   Firmware:
     'M7 5h10v14H7V5Zm3 3h4v4h-4V8ZM4 8h3M4 12h3M4 16h3m10-8h3m-3 4h3m-3 4h3',
   'Console Mode':
@@ -34,6 +43,7 @@ const symbolKeys: Record<Page, string> = {
   Library: 'library',
   Emulators: 'emulators',
   Firmware: 'firmware',
+  Saves: 'saves',
   'Console Mode': 'console',
   Controllers: 'controllers',
   'This Mac': 'this-mac',

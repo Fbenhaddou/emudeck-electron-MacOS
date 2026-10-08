@@ -6,6 +6,7 @@ import type {
   LibraryOverview,
   MacAPI,
   MacStatus,
+  SavesOverview,
 } from '../../shared/macos';
 import { Caution, pages, sections, Spinner, Symbol } from './controls';
 import type { Page } from './controls';
@@ -15,6 +16,7 @@ import DevelopmentPage from './pages/DevelopmentPage';
 import EmulatorsPage from './pages/EmulatorsPage';
 import FirmwarePage from './pages/FirmwarePage';
 import LibraryPage from './pages/LibraryPage';
+import SavesPage from './pages/SavesPage';
 import ThisMacPage from './pages/ThisMacPage';
 import type { Action, PageProps } from './pages/types';
 
@@ -34,6 +36,7 @@ export default function MacApp() {
     null,
   );
   const [overview, setOverview] = useState<LibraryOverview | null>(null);
+  const [saves, setSaves] = useState<SavesOverview | null>(null);
   const [narrow, setNarrow] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const mounted = useRef(true);
@@ -129,6 +132,14 @@ export default function MacApp() {
       /* The page keeps its last known state. */
     }
   }, []);
+  const refreshSaves = useCallback(async () => {
+    try {
+      const next = await window.mac.getSaves();
+      if (mounted.current) setSaves(next);
+    } catch {
+      /* The page keeps its last known state. */
+    }
+  }, []);
   const libraryPath = status?.library?.path;
   const libraryAvailable = status?.library?.available;
   const installedEmulators = `${status?.dolphin.version}|${status?.emulators
@@ -145,6 +156,11 @@ export default function MacApp() {
     installedEmulators,
     refreshOverview,
   ]);
+  useEffect(() => {
+    // Backups are also made by launches and updates; re-read on every visit.
+    if (page !== 'Saves') return;
+    void refreshSaves();
+  }, [page, libraryPath, libraryAvailable, refreshSaves]);
   useEffect(() => {
     // Only while visible: plugging in a controller or battery changes appear live.
     if (page !== 'Controllers') return undefined;
@@ -245,6 +261,16 @@ export default function MacApp() {
   const addFirmware = async (id: string) => {
     await operate('adding-firmware', () => window.mac.addFirmware(id));
     await refreshOverview();
+  };
+  const revealSaves = async (emulator: string) => {
+    try {
+      const result = await window.mac.revealSaves(emulator);
+      if (!result.ok) setError(result.error);
+    } catch {
+      setError(
+        'Finder could not open the folder. Reconnect your library drive and try again.',
+      );
+    }
   };
   const revealSystem = async (id: string) => {
     try {
@@ -427,6 +453,17 @@ export default function MacApp() {
                     {...props}
                     overview={overview}
                     addFirmware={addFirmware}
+                  />
+                )}
+                {page === 'Saves' && (
+                  <SavesPage
+                    {...props}
+                    operate={async (next, operation) => {
+                      await operate(next, operation);
+                      await refreshSaves();
+                    }}
+                    saves={saves}
+                    revealSaves={revealSaves}
                   />
                 )}
                 {page === 'Emulators' && <EmulatorsPage {...props} />}

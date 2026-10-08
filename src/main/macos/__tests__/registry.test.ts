@@ -118,6 +118,7 @@ describe('emulator registry', () => {
     } = require('../app/emulators');
     const { libraryOverview } = require('../app/library');
     const registerFirmwareHandlers = require('../app/firmware').default;
+    const { createSaves } = require('../app/saves');
     /* eslint-enable global-require */
     const context = createContext({
       userData: path.join(root, 'user-data'),
@@ -127,10 +128,12 @@ describe('emulator registry', () => {
     const contents = { mainFrame: { url: rendererURL } };
     context.setWindow({ webContents: contents });
     const emulators = createEmulators(context, [...managedEmulators, stub]);
-    registerEmulatorHandlers(context, emulators);
+    const saves = createSaves(context, emulators);
+    registerEmulatorHandlers(context, emulators, saves);
     registerFirmwareHandlers(context, emulators);
     const caller = { sender: contents, senderFrame: contents.mainFrame };
     return {
+      saves,
       emulators,
       overview: libraryOverview(context, emulators),
       invoke: (channel: string, ...args: unknown[]) =>
@@ -203,5 +206,53 @@ describe('emulator registry', () => {
     await expect(invoke('mac:add-firmware', 'other-bios')).rejects.toThrow(
       'not permitted',
     );
+  });
+
+  it('snapshots saves before updating an installed emulator', async () => {
+    stubApp.health.mockResolvedValue('installed' as never);
+    await fs.mkdir(path.join(root, 'user-data', 'components', 'stubemu'), {
+      recursive: true,
+    });
+    const saves = path.join(library, 'emulators', 'stubemu', 'saves');
+    await fs.mkdir(saves, { recursive: true });
+    await fs.writeFile(path.join(saves, 'slot1.sav'), 'progress');
+    const { invoke } = load();
+    await expect(invoke('mac:install-emulator', 'stubemu')).resolves.toEqual({
+      ok: true,
+    });
+    const backups = path.join(library, 'backups', 'saves', 'stubemu');
+    const [snapshot] = await fs.readdir(backups);
+    expect(snapshot).toMatch(/-before-update$/);
+    await expect(
+      fs.readFile(path.join(backups, snapshot, 'saves', 'slot1.sav'), 'utf8'),
+    ).resolves.toBe('progress');
+    stubApp.health.mockResolvedValue('missing' as never);
+  });
+
+  it('refuses the update when the saves cannot be backed up', async () => {
+    stubApp.health.mockResolvedValue('installed' as never);
+    await fs.mkdir(path.join(root, 'user-data', 'components', 'stubemu'), {
+      recursive: true,
+    });
+    stubApp.install.mockClear();
+    const elsewhere = path.join(root, 'elsewhere');
+    await fs.mkdir(elsewhere);
+    await fs.writeFile(path.join(elsewhere, 'slot1.sav'), 'progress');
+    await fs.mkdir(path.join(library, 'emulators', 'stubemu'), {
+      recursive: true,
+    });
+    // A linked save folder cannot be snapshotted safely.
+    await fs.symlink(
+      elsewhere,
+      path.join(library, 'emulators', 'stubemu', 'saves'),
+    );
+    const { invoke } = load();
+    await expect(
+      invoke('mac:install-emulator', 'stubemu'),
+    ).resolves.toMatchObject({
+      ok: false,
+    });
+    expect(stubApp.install).not.toHaveBeenCalled();
+    stubApp.health.mockResolvedValue('missing' as never);
   });
 });

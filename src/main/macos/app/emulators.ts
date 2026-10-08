@@ -15,6 +15,7 @@ import { EmulatorRuntime, defaultSpawn } from '../emulator-runtime';
 import { acceptsOneOf } from '../security';
 import { BUSY } from './context';
 import type { AppContext } from './context';
+import type { Saves } from './saves';
 
 /** Dolphin (the original manager), the pinned-app emulators and their systems. */
 /** A Console Mode system for an adapter: ES-DE name plus the emulator's name. */
@@ -110,12 +111,16 @@ export type Emulators = ReturnType<typeof createEmulators>;
 export function registerEmulatorHandlers(
   context: AppContext,
   { manager, pinned, pinnedIDs }: Emulators,
+  saves: Saves,
 ): void {
   context.handle('mac:install-dolphin', async (): Promise<ActionResult> => {
     if (context.busy()) return { ok: false, error: BUSY };
     return context.exclusive(async () => {
       try {
         const library = await context.availableLibrary();
+        // An update or repair never starts without a verified copy of the saves.
+        if ((await manager.status()).version)
+          await saves.before(library, 'dolphin', 'before-update');
         await manager.install();
         if ((await context.availableLibrary()) !== library)
           throw new Error('Library changed');
@@ -156,6 +161,7 @@ export function registerEmulatorHandlers(
           (await context.availableLibrary()) !== library
         )
           throw new Error('Library changed');
+        await saves.daily(library, dolphin.system.id);
         await manager.launch(library, choice.filePaths[0]);
         return { ok: true };
       } catch {
@@ -190,6 +196,7 @@ export function registerEmulatorHandlers(
         if (choice.response !== 1) return { ok: true };
         if ((await context.availableLibrary()) !== library)
           throw new Error('Library changed');
+        await saves.before(library, 'dolphin', 'before-reset');
         await manager.reset(library);
         return { ok: true };
       } catch {
@@ -208,7 +215,13 @@ export function registerEmulatorHandlers(
       const runtime = pinned[args[0] as string];
       if (context.busy()) return { ok: false, error: BUSY };
       try {
-        await context.availableLibrary();
+        const library = await context.availableLibrary();
+        if ((await runtime.status()).health !== 'missing')
+          await saves.before(
+            library,
+            runtime.adapter.manifest.id,
+            'before-update',
+          );
         await runtime.install();
         await runtime.prepareLibrary(await context.availableLibrary());
         return { ok: true };
@@ -258,6 +271,7 @@ export function registerEmulatorHandlers(
             (await context.availableLibrary()) !== library
           )
             throw new Error('Library changed');
+          await saves.daily(library, runtime.adapter.system.id);
           await runtime.launch(library, choice.filePaths[0]);
           return { ok: true };
         } catch (error) {

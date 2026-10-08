@@ -6,6 +6,7 @@ import type { MacStatus } from '../../shared/macos';
 import { bridgeMethodNames } from '../../shared/macos-bridge';
 import { setWindowZoom } from './chrome';
 import { selectLibrary } from './library';
+import { takeSnapshot } from './snapshots';
 
 type Appearance = 'light' | 'dark';
 interface Capture {
@@ -394,6 +395,7 @@ export default class SmokeHarness {
     for (const page of [
       'Emulators',
       'Firmware',
+      'Saves',
       'Console Mode',
       'Controllers',
       'This Mac',
@@ -453,6 +455,42 @@ export default class SmokeHarness {
       window,
       'firmware-library',
       'Firmware / library selected / nothing added',
+    );
+
+    // Synthetic save bytes, backed up by the real snapshot code.
+    const fixtureSaves = path.join(
+      fixtureLibrary,
+      'emulators',
+      'dolphin',
+      'User',
+      'GC',
+    );
+    await fs.mkdir(fixtureSaves, { recursive: true, mode: 0o700 });
+    await fs.writeFile(
+      path.join(fixtureSaves, 'MemoryCardA.USA.raw'),
+      new Uint8Array(16384),
+    );
+    await takeSnapshot(
+      fixtureLibrary,
+      {
+        emulator: 'dolphin',
+        folders: {
+          saves: fixtureSaves,
+          states: path.join(path.dirname(fixtureSaves), 'StateSaves'),
+        },
+      },
+      'before-reset',
+    );
+    await this.navigate(window, 'Saves');
+    await this.refresh(
+      window,
+      `document.querySelector('main')?.textContent.includes('Before resetting settings')`,
+      'saves overview',
+    );
+    await this.appearances(
+      window,
+      'saves-library',
+      'Saves / one backup before a reset',
     );
 
     await fs.rename(fixtureLibrary, `${fixtureLibrary} disconnected`);

@@ -12,6 +12,7 @@ import type {
   ControllersStatus,
   LibraryOverview,
   MacStatus,
+  SavesOverview,
 } from '../../../shared/macos';
 
 const status: MacStatus = {
@@ -97,6 +98,33 @@ const overview: LibraryOverview = {
     },
   ],
 };
+const savesOverview: SavesOverview = {
+  available: true,
+  systems: [
+    {
+      emulator: 'dolphin',
+      name: 'Dolphin',
+      system: 'GameCube',
+      installed: true,
+      snapshots: [
+        {
+          id: '2026-10-01T10-00-00-000Z-before-reset',
+          reason: 'before-reset',
+          created: '2026-10-01T10:00:00.000Z',
+          files: 3,
+          bytes: 12292,
+        },
+      ],
+    },
+    {
+      emulator: 'ppsspp',
+      name: 'PPSSPP',
+      system: 'PSP',
+      installed: false,
+      snapshots: [],
+    },
+  ],
+};
 let refreshFromMenu: () => void;
 let unsubscribeRefresh: jest.Mock;
 beforeEach(() => {
@@ -126,6 +154,10 @@ beforeEach(() => {
     addFirmware: jest.fn(async () => ({ ok: true as const })),
     revealSystem: jest.fn(async () => ({ ok: true as const })),
     exportDiagnostics: jest.fn(async () => ({ ok: true as const })),
+    getSaves: jest.fn(async () => savesOverview),
+    backUpSaves: jest.fn(async () => ({ ok: true as const })),
+    restoreSaves: jest.fn(async () => ({ ok: true as const })),
+    revealSaves: jest.fn(async () => ({ ok: true as const })),
   };
 });
 afterEach(() => {
@@ -648,4 +680,53 @@ it('exports diagnostics from This Mac through its fixed method', async () => {
   expect(
     screen.getByText(/never includes game names, file paths/),
   ).toBeInTheDocument();
+});
+
+describe('Saves page', () => {
+  async function openSaves() {
+    render(<MacApp />);
+    await screen.findByRole('button', { name: 'Choose Folder…' });
+    fireEvent.click(screen.getByRole('button', { name: 'Saves' }));
+    return screen.findByRole('region', { name: 'GameCube saves' });
+  }
+
+  it('lists each system with its backups and why they were made', async () => {
+    const gamecube = await openSaves();
+    expect(gamecube).toHaveTextContent('Dolphin');
+    expect(gamecube).toHaveTextContent('Before resetting settings');
+    expect(gamecube).toHaveTextContent('3 files · 12 KB');
+    expect(screen.getByRole('region', { name: 'PSP saves' })).toHaveTextContent(
+      'No backups yet',
+    );
+  });
+
+  it('backs up and restores through the narrow API only', async () => {
+    await openSaves();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Back up GameCube saves now' }),
+    );
+    await waitFor(() =>
+      expect(window.mac.backUpSaves).toHaveBeenCalledWith('dolphin'),
+    );
+    await waitFor(() => expect(window.mac.getSaves).toHaveBeenCalledTimes(2));
+    fireEvent.click(
+      screen.getByRole('button', { name: /^Restore GameCube saves from / }),
+    );
+    await waitFor(() =>
+      expect(window.mac.restoreSaves).toHaveBeenCalledWith(
+        'dolphin/2026-10-01T10-00-00-000Z-before-reset',
+      ),
+    );
+  });
+
+  it('asks for a library when none is available', async () => {
+    window.mac.getSaves = jest.fn(async () => ({
+      available: false,
+      systems: [],
+    }));
+    render(<MacApp />);
+    await screen.findByRole('button', { name: 'Choose Folder…' });
+    fireEvent.click(screen.getByRole('button', { name: 'Saves' }));
+    expect(await screen.findByText('No library available')).toBeInTheDocument();
+  });
 });

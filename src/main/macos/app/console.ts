@@ -9,52 +9,64 @@ import { activateUntilHeld, restoreFocus } from '../focus';
 import { BUSY } from './context';
 import type { AppContext } from './context';
 import type { Emulators } from './emulators';
+import type { Saves } from './saves';
 
 /** Console Mode: the ES-DE session, its installation and its handlers. */
-export function createConsole(context: AppContext, emulators: Emulators) {
+export function createConsole(
+  context: AppContext,
+  emulators: Emulators,
+  saves: Saves,
+) {
   const consoleRoot = path.join(context.userData, 'console');
   const frontendRoot = path.join(context.userData, 'components', 'es-de');
   let installing = false;
+  const dependencies = consoleDependencies(
+    {
+      frontendRoot,
+      profileHome: path.join(consoleRoot, 'esde-home'),
+      secretPath: path.join(consoleRoot, 'game-id.key'),
+      launcherHelper: path.join(context.helpers, 'console-launcher'),
+      activateHelper: path.join(context.helpers, 'activate-app'),
+      guardianHelper: path.join(context.helpers, 'console-guardian'),
+      preferencesFile: path.join(context.userData, 'controllers.json'),
+    },
+    {
+      // Hidden, not closed: the manager stays ready but never competes for focus.
+      hide: () => app.hide(),
+      show: () => {
+        app.show();
+        context.window()?.show();
+        context.window()?.focus();
+        // app.focus() is ignored under cooperative activation once the frontend
+        // quits; activate this exact app through the verified helper instead.
+        void activateUntilHeld(
+          () =>
+            restoreFocus(
+              path.join(context.helpers, 'activate-app'),
+              process.pid,
+              path.resolve(process.execPath, '..', '..', '..'),
+            ),
+          (milliseconds) =>
+            new Promise((resolve) => {
+              setTimeout(resolve, milliseconds);
+            }),
+        ).then((outcome) =>
+          diagnosticEvent({ event: 'manager-focus', outcome }),
+        );
+      },
+    },
+    emulators.systems,
+  );
+  const { prepareGameInput } = dependencies;
+  // A daily save snapshot (best effort) before every Console Mode game.
+  dependencies.prepareGameInput = async (library, system) => {
+    await saves.daily(library, system);
+    await prepareGameInput(library, system);
+  };
   const session: ConsoleSession = new ConsoleSession(
     path.join(consoleRoot, 'esde-home'),
     emulators.runners,
-    consoleDependencies(
-      {
-        frontendRoot,
-        profileHome: path.join(consoleRoot, 'esde-home'),
-        secretPath: path.join(consoleRoot, 'game-id.key'),
-        launcherHelper: path.join(context.helpers, 'console-launcher'),
-        activateHelper: path.join(context.helpers, 'activate-app'),
-        guardianHelper: path.join(context.helpers, 'console-guardian'),
-        preferencesFile: path.join(context.userData, 'controllers.json'),
-      },
-      {
-        // Hidden, not closed: the manager stays ready but never competes for focus.
-        hide: () => app.hide(),
-        show: () => {
-          app.show();
-          context.window()?.show();
-          context.window()?.focus();
-          // app.focus() is ignored under cooperative activation once the frontend
-          // quits; activate this exact app through the verified helper instead.
-          void activateUntilHeld(
-            () =>
-              restoreFocus(
-                path.join(context.helpers, 'activate-app'),
-                process.pid,
-                path.resolve(process.execPath, '..', '..', '..'),
-              ),
-            (milliseconds) =>
-              new Promise((resolve) => {
-                setTimeout(resolve, milliseconds);
-              }),
-          ).then((outcome) =>
-            diagnosticEvent({ event: 'manager-focus', outcome }),
-          );
-        },
-      },
-      emulators.systems,
-    ),
+    dependencies,
     () => {
       // Structured, path-free diagnostics: states and outcomes only.
       // eslint-disable-next-line no-use-before-define -- Runs after construction.

@@ -23,6 +23,7 @@ describe('symbolCSS', () => {
       'gamecontroller',
       'sofa',
       'memorychip',
+      'clock.arrow.circlepath',
       'display',
       'chevron.left.forwardslash.chevron.right',
       'arrow.clockwise',
@@ -32,6 +33,7 @@ describe('symbolCSS', () => {
       'gamecontroller.fill',
       'sofa.fill',
       'memorychip.fill',
+      'clock.arrow.circlepath',
       'display',
       'chevron.left.forwardslash.chevron.right',
     ]);

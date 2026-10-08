@@ -18,6 +18,7 @@ import { readProcessExecutables } from '../processes';
 import { acceptsOneOf } from '../security';
 import { BUSY } from './context';
 import type { AppContext } from './context';
+import type { Saves } from './saves';
 
 const stickResponses = ['standard', 'precise'] as const;
 
@@ -84,6 +85,7 @@ export function createControllers(context: AppContext) {
 export function registerControllerHandlers(
   context: AppContext,
   controllers: ReturnType<typeof createControllers>,
+  saves: Saves,
 ): void {
   context.handle('mac:controllers', controllers.status);
 
@@ -129,6 +131,7 @@ export function registerControllerHandlers(
           if (choice.response !== 1) return { ok: true };
           if ((await context.availableLibrary()) !== library)
             throw new Error('Library changed');
+          await saves.before(library, 'dolphin', 'before-controls');
           await prepareDolphinLibrary(library);
           const { configuration, ownership } = dolphinInputPaths(library);
           await adoptManagedInput(

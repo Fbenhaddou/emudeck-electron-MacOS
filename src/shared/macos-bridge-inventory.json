@@ -6,20 +6,47 @@
       "argument": "one",
       "sample": "gc-ipl"
     },
-    "chooseLibrary": { "channel": "mac:choose-library", "argument": "none" },
-    "enterConsole": { "channel": "mac:enter-console", "argument": "none" },
+    "backUpSaves": {
+      "channel": "mac:back-up-saves",
+      "argument": "one",
+      "sample": "dolphin"
+    },
+    "chooseLibrary": {
+      "channel": "mac:choose-library",
+      "argument": "none"
+    },
+    "enterConsole": {
+      "channel": "mac:enter-console",
+      "argument": "none"
+    },
     "exportDiagnostics": {
       "channel": "mac:export-diagnostics",
       "argument": "none"
     },
-    "getControllers": { "channel": "mac:controllers", "argument": "none" },
+    "getControllers": {
+      "channel": "mac:controllers",
+      "argument": "none"
+    },
     "getLibraryOverview": {
       "channel": "mac:library-overview",
       "argument": "none"
     },
-    "getStatus": { "channel": "mac:status", "argument": "none" },
-    "installConsole": { "channel": "mac:install-console", "argument": "none" },
-    "installDolphin": { "channel": "mac:install-dolphin", "argument": "none" },
+    "getSaves": {
+      "channel": "mac:saves",
+      "argument": "none"
+    },
+    "getStatus": {
+      "channel": "mac:status",
+      "argument": "none"
+    },
+    "installConsole": {
+      "channel": "mac:install-console",
+      "argument": "none"
+    },
+    "installDolphin": {
+      "channel": "mac:install-dolphin",
+      "argument": "none"
+    },
     "installEmulator": {
       "channel": "mac:install-emulator",
       "argument": "one",
@@ -34,13 +61,32 @@
       "argument": "one",
       "sample": "ppsspp"
     },
-    "playGame": { "channel": "mac:play-game", "argument": "none" },
+    "playGame": {
+      "channel": "mac:play-game",
+      "argument": "none"
+    },
     "recoverLibrarySettings": {
       "channel": "mac:recover-library-settings",
       "argument": "none"
     },
-    "resetDolphin": { "channel": "mac:reset-dolphin", "argument": "none" },
-    "revealLibrary": { "channel": "mac:reveal-library", "argument": "none" },
+    "resetDolphin": {
+      "channel": "mac:reset-dolphin",
+      "argument": "none"
+    },
+    "restoreSaves": {
+      "channel": "mac:restore-saves",
+      "argument": "one",
+      "sample": "dolphin/2026-10-01T10-00-00-000Z-manual"
+    },
+    "revealLibrary": {
+      "channel": "mac:reveal-library",
+      "argument": "none"
+    },
+    "revealSaves": {
+      "channel": "mac:reveal-saves",
+      "argument": "one",
+      "sample": "dolphin"
+    },
     "revealSystem": {
       "channel": "mac:reveal-system",
       "argument": "one",

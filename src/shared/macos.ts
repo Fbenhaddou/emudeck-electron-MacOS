@@ -113,6 +113,37 @@ export type LibraryResult =
   | { ok: true; library: LibraryInfo }
   | { ok: false; cancelled?: boolean; error: string };
 
+export interface SnapshotSummary {
+  id: string;
+  reason:
+    | 'daily'
+    | 'before-update'
+    | 'before-reset'
+    | 'before-controls'
+    | 'before-restore'
+    | 'manual';
+  /** ISO time. */
+  created: string;
+  files: number;
+  bytes: number;
+}
+
+export interface SavesSystem {
+  emulator: string;
+  /** Emulator name, e.g. 'Dolphin'. */
+  name: string;
+  /** Short system name, e.g. 'GameCube'. */
+  system: string;
+  installed: boolean;
+  /** Newest first. */
+  snapshots: SnapshotSummary[];
+}
+
+export interface SavesOverview {
+  available: boolean;
+  systems: SavesSystem[];
+}
+
 export interface MacAPI {
   getStatus(): Promise<MacStatus>;
   onRefreshStatus(callback: () => void): () => void;
@@ -133,4 +164,9 @@ export interface MacAPI {
   addFirmware(id: string): Promise<ActionResult>;
   revealSystem(id: string): Promise<ActionResult>;
   exportDiagnostics(): Promise<ActionResult>;
+  getSaves(): Promise<SavesOverview>;
+  backUpSaves(emulator: string): Promise<ActionResult>;
+  /** 'emulator/snapshot-id' */
+  restoreSaves(target: string): Promise<ActionResult>;
+  revealSaves(emulator: string): Promise<ActionResult>;
 }

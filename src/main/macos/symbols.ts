@@ -11,6 +11,7 @@ const symbols: Readonly<Record<string, string>> = Object.freeze({
   controllers: 'gamecontroller',
   console: 'sofa',
   firmware: 'memorychip',
+  saves: 'clock.arrow.circlepath',
   // Outline monitor: a multi-layer symbol would flatten into a filled mask.
   'this-mac': 'display',
   development: 'chevron.left.forwardslash.chevron.right',
@@ -22,6 +23,7 @@ const symbols: Readonly<Record<string, string>> = Object.freeze({
   'controllers-fill': 'gamecontroller.fill',
   'console-fill': 'sofa.fill',
   'firmware-fill': 'memorychip.fill',
+  'saves-fill': 'clock.arrow.circlepath',
   'this-mac-fill': 'display',
   'development-fill': 'chevron.left.forwardslash.chevron.right',
 });

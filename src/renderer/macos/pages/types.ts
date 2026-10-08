@@ -9,7 +9,9 @@ export type Action =
   | 'installing-console'
   | 'opening-console'
   | 'adding-firmware'
-  | 'exporting-diagnostics';
+  | 'exporting-diagnostics'
+  | 'backing-up'
+  | 'restoring';
 
 /* eslint-disable no-unused-vars -- Parameter names document the callback. */
 export type Operate = (
