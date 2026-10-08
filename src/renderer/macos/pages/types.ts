@@ -11,10 +11,12 @@ export type Action =
   | 'adding-firmware'
   | 'exporting-diagnostics';
 
+/* eslint-disable no-unused-vars -- Parameter names document the callback. */
 export type Operate = (
   action: Action,
   operation: () => Promise<{ ok: boolean; error?: string }>,
 ) => Promise<void>;
+/* eslint-enable no-unused-vars */
 
 /** What every page receives from the window: status and the shared action state. */
 export interface PageProps {
