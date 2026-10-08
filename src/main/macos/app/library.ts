@@ -3,9 +3,12 @@ import fs from 'fs/promises';
 import path from 'path';
 import type {
   ActionResult,
+  LibraryCheck,
   LibraryOverview,
   LibraryResult,
 } from '../../../shared/macos';
+import { checkLibrary, moveToSystem } from '../library-health';
+import type { HealthIssue } from '../library-health';
 import { listGames } from '../console-host';
 import { firmwareStatus } from '../firmware';
 import { readLibrary, recoverLibrarySettings, selectLibrary } from '../library';
@@ -182,5 +185,103 @@ export function registerLibraryHandlers(
         }
       });
     },
+  );
+
+  /** The last check's issues, by id: the only targets fix and reveal accept. */
+  let lastCheck = new Map<string, { issue: HealthIssue; library: string }>();
+  const shortName = (system?: string) =>
+    systems.find((entry) => entry.system.id === system)?.adapter.system
+      .shortName;
+
+  context.handle('mac:check-library', async (): Promise<LibraryCheck> => {
+    let library: string;
+    try {
+      library = await context.availableLibrary();
+    } catch {
+      return { available: false, checked: 0, truncated: false, issues: [] };
+    }
+    const report = await checkLibrary(
+      library,
+      systems.map((entry) => entry.adapter),
+    );
+    lastCheck = new Map(
+      report.issues.map((issue) => [issue.id, { issue, library }]),
+    );
+    return {
+      available: true,
+      checked: report.checked,
+      truncated: report.truncated,
+      issues: report.issues.map((issue) => ({
+        id: issue.id,
+        kind: issue.kind,
+        path: issue.path,
+        other: issue.other,
+        targetName: shortName(issue.target),
+        movable: Boolean(issue.target),
+      })),
+    };
+  });
+
+  context.handle(
+    'mac:fix-library-issue',
+    async (args): Promise<ActionResult> => {
+      const entry = lastCheck.get(args[0] as string)!;
+      const target = systems.find(
+        (candidate) => candidate.system.id === entry.issue.target,
+      );
+      if (!target) return { ok: false, error: 'This can’t be fixed here.' };
+      if (context.busy()) return { ok: false, error: BUSY };
+      return context.exclusive(async () => {
+        try {
+          if ((await context.availableLibrary()) !== entry.library)
+            throw new Error('Library changed');
+          const name = path.posix.basename(entry.issue.path);
+          const folder = target.adapter.system.shortName;
+          const choice = await dialog.showMessageBox(context.window()!, {
+            type: 'question',
+            message: `Move “${name}” to the ${folder} folder?`,
+            detail: `It is moved, not copied, so it appears with your other ${folder} games. Nothing is replaced if a file with the same name is already there.`,
+            buttons: ['Cancel', 'Move'],
+            defaultId: 1,
+            cancelId: 0,
+          });
+          if (choice.response !== 1) return { ok: true };
+          await moveToSystem(entry.library, entry.issue.path, target.adapter);
+          lastCheck.delete(entry.issue.id);
+          return { ok: true };
+        } catch (error) {
+          return {
+            ok: false,
+            error:
+              error instanceof Error && error.message.includes('already there')
+                ? 'A file with that name is already in that folder, so nothing was moved.'
+                : 'The file could not be moved. Check that your library drive is connected. Nothing was changed.',
+          };
+        }
+      });
+    },
+    (values) => acceptsOneOf(values, [...lastCheck.keys()]),
+  );
+
+  context.handle(
+    'mac:reveal-library-issue',
+    async (args): Promise<ActionResult> => {
+      const entry = lastCheck.get(args[0] as string)!;
+      try {
+        if ((await context.availableLibrary()) !== entry.library)
+          throw new Error('Library changed');
+        const target = path.join(entry.library, ...entry.issue.path.split('/'));
+        await fs.lstat(target);
+        shell.showItemInFolder(target);
+        return { ok: true };
+      } catch {
+        return {
+          ok: false,
+          error:
+            'That file is no longer there. Check the library again to refresh the list.',
+        };
+      }
+    },
+    (values) => acceptsOneOf(values, [...lastCheck.keys()]),
   );
 }

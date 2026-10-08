@@ -97,6 +97,7 @@ async function run() {
       'page-this-mac',
       'page-development',
       'library-selected',
+      'library-check',
       'library-disconnected',
       'library-error',
       'emulators-library',

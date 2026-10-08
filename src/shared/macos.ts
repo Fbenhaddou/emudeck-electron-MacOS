@@ -145,6 +145,36 @@ export interface SavesOverview {
   systems: SavesSystem[];
 }
 
+export interface LibraryIssue {
+  /** Opaque within one check; the only thing the page sends back. */
+  id: string;
+  kind:
+    | 'wrong-system'
+    | 'unsupported'
+    | 'empty'
+    | 'duplicate'
+    | 'link'
+    | 'apple-double'
+    | 'incomplete-folder'
+    | 'multi-disc'
+    | 'outside-system';
+  /** Library-relative path, for display. */
+  path: string;
+  /** Short name of the system the file belongs to, when known. */
+  targetName?: string;
+  /** For duplicates: the library-relative path of the matching file. */
+  other?: string;
+  /** Whether Move to … can fix it. */
+  movable: boolean;
+}
+
+export interface LibraryCheck {
+  available: boolean;
+  checked: number;
+  truncated: boolean;
+  issues: LibraryIssue[];
+}
+
 export interface MacAPI {
   getStatus(): Promise<MacStatus>;
   onRefreshStatus(callback: () => void): () => void;
@@ -170,4 +200,7 @@ export interface MacAPI {
   /** 'emulator/snapshot-id' */
   restoreSaves(target: string): Promise<ActionResult>;
   revealSaves(emulator: string): Promise<ActionResult>;
+  checkLibrary(): Promise<LibraryCheck>;
+  fixLibraryIssue(id: string): Promise<ActionResult>;
+  revealLibraryIssue(id: string): Promise<ActionResult>;
 }

@@ -11,6 +11,10 @@
       "argument": "one",
       "sample": "dolphin"
     },
+    "checkLibrary": {
+      "channel": "mac:check-library",
+      "argument": "none"
+    },
     "chooseLibrary": {
       "channel": "mac:choose-library",
       "argument": "none"
@@ -22,6 +26,11 @@
     "exportDiagnostics": {
       "channel": "mac:export-diagnostics",
       "argument": "none"
+    },
+    "fixLibraryIssue": {
+      "channel": "mac:fix-library-issue",
+      "argument": "one",
+      "sample": "wrong-system:roms/gc/Game.cso"
     },
     "getControllers": {
       "channel": "mac:controllers",
@@ -81,6 +90,11 @@
     "revealLibrary": {
       "channel": "mac:reveal-library",
       "argument": "none"
+    },
+    "revealLibraryIssue": {
+      "channel": "mac:reveal-library-issue",
+      "argument": "one",
+      "sample": "empty:roms/gc/Game.rvz"
     },
     "revealSaves": {
       "channel": "mac:reveal-saves",

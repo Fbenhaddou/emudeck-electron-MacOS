@@ -12,6 +12,7 @@ import type {
   ControllersStatus,
   LibraryOverview,
   MacStatus,
+  LibraryCheck,
   SavesOverview,
 } from '../../../shared/macos';
 
@@ -98,6 +99,26 @@ const overview: LibraryOverview = {
     },
   ],
 };
+const libraryCheck: LibraryCheck = {
+  available: true,
+  checked: 4,
+  truncated: false,
+  issues: [
+    {
+      id: 'wrong-system:roms/gc/Pocket.cso',
+      kind: 'wrong-system',
+      path: 'roms/gc/Pocket.cso',
+      targetName: 'PSP',
+      movable: true,
+    },
+    {
+      id: 'empty:roms/gc/Empty.rvz',
+      kind: 'empty',
+      path: 'roms/gc/Empty.rvz',
+      movable: false,
+    },
+  ],
+};
 const savesOverview: SavesOverview = {
   available: true,
   systems: [
@@ -158,6 +179,9 @@ beforeEach(() => {
     backUpSaves: jest.fn(async () => ({ ok: true as const })),
     restoreSaves: jest.fn(async () => ({ ok: true as const })),
     revealSaves: jest.fn(async () => ({ ok: true as const })),
+    checkLibrary: jest.fn(async () => libraryCheck),
+    fixLibraryIssue: jest.fn(async () => ({ ok: true as const })),
+    revealLibraryIssue: jest.fn(async () => ({ ok: true as const })),
   };
 });
 afterEach(() => {
@@ -759,5 +783,40 @@ describe('Saves page', () => {
     expect(
       gamecube.querySelectorAll('button[aria-label^="Restore"]'),
     ).toHaveLength(7);
+  });
+});
+
+describe('Library check', () => {
+  it('lists problems in plain words and fixes only through issue ids', async () => {
+    window.mac.getStatus = jest.fn().mockResolvedValue({
+      ...status,
+      library: { path: '/Volumes/Games/Library', available: true },
+    });
+    render(<MacApp />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Check Library' }),
+    );
+    expect(await screen.findByText('2 things to look at.')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'A PSP game in the wrong folder, so it won’t appear with your PSP games.',
+      ),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Move Pocket.cso to the PSP folder' }),
+    );
+    await waitFor(() =>
+      expect(window.mac.fixLibraryIssue).toHaveBeenCalledWith(
+        'wrong-system:roms/gc/Pocket.cso',
+      ),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Show Empty.rvz in Finder' }),
+    );
+    await waitFor(() =>
+      expect(window.mac.revealLibraryIssue).toHaveBeenCalledWith(
+        'empty:roms/gc/Empty.rvz',
+      ),
+    );
   });
 });

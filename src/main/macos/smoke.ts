@@ -439,6 +439,32 @@ export default class SmokeHarness {
       'library-selected',
       'Library / long Unicode and spaces path',
     );
+    // Synthetic problems for the read-only library check.
+    const fixtureRoms = path.join(fixtureLibrary, 'roms');
+    await fs.mkdir(path.join(fixtureRoms, 'gc'), { recursive: true });
+    await fs.writeFile(
+      path.join(fixtureRoms, 'gc', 'Pocket Adventure.cso'),
+      'x',
+    );
+    await fs.writeFile(path.join(fixtureRoms, 'gc', 'Unfinished Copy.rvz'), '');
+    await window.webContents.executeJavaScript(
+      `Array.from(document.querySelectorAll('button')).find(button => button.textContent.trim() === 'Check Library').click()`,
+    );
+    await this.refresh(
+      window,
+      `document.querySelector('[aria-label="Library check"]')?.textContent.includes('2 things to look at')`,
+      'library check results',
+    );
+    await window.webContents.executeJavaScript(
+      `document.querySelector('[aria-label="Library check"]').scrollIntoView()`,
+    );
+    await this.appearances(
+      window,
+      'library-check',
+      'Library / check found a misplaced and an empty game',
+    );
+    await fs.rm(path.join(fixtureRoms, 'gc', 'Pocket Adventure.cso'));
+    await fs.rm(path.join(fixtureRoms, 'gc', 'Unfinished Copy.rvz'));
     await this.navigate(window, 'Emulators');
     await this.appearances(
       window,

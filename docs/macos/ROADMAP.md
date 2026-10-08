@@ -83,13 +83,14 @@ Adding many emulators to today's structure would multiply the cost of every late
   - 2026-10-08: built (`snapshots.ts`, `app/saves.ts`); 19 snapshot tests with injected failures (full disk while sealing, a failed second swap, a simulated crash mid-restore), clock-set-back and retention tests; a data-loss critic review led to a rewrite (sequence ordering, content dedupe, protected restore points, restore journal with rollback and startup recovery, firmware excluded, emulators running outside the app detected). Byte-identical restore is proven in tests with synthetic saves, not yet from the UI with a real emulator: **(owner)** corrupt a real Dolphin/PPSSPP save and restore it from the Saves page.
 - [~] **Saves page:** per system and per game, shows last played, snapshot history, Restore… (with confirmation), and Show in Finder.
   - 2026-10-08: per-system page built (history, Back Up Now, Restore… with a native confirmation, Show Saves in Finder, Show All Backups); revised after a macOS visual critic FAIL. Per-game saves and last played are not done: they depend on per-game save mapping, planned with the Phase 6 library browser.
-- [ ] **Library health check:** read-only scan that reports problems:
+- [x] **Library health check:** read-only scan that reports problems:
   - games in the wrong system folder;
   - unsupported formats;
   - multi-disc sets without `.m3u`;
   - zero-byte or duplicate files;
   - names ES-DE will mis-parse.
   - Offers fixes that copy, or move only after explicit confirmation.
+  - Done 2026-10-08: Library › Library Check (`library-health.ts`). Reports misplaced games (only when the extension belongs to exactly one other system), unsupported files, empty files, likely duplicates (same size and same first/last MiB), links, macOS `._` files, incomplete folder games, multi-disc sets without `.m3u`, and games outside any system folder. The only fix is Move to <system>… after a native confirmation; it never overwrites (hard-link move, with a checked rename on exFAT). Fix/reveal accept only issue ids from main's own last check. "Names ES-DE will mis-parse" does not apply: Console Mode passes names through an opaque catalog (Decision 005). 13 unit tests, a renderer test and a smoke capture with synthetic files.
 - [ ] **External drive resilience:**
   - unplug mid-session;
   - renamed volume;

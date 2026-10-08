@@ -11,7 +11,9 @@ export type Action =
   | 'adding-firmware'
   | 'exporting-diagnostics'
   | 'backing-up'
-  | 'restoring';
+  | 'restoring'
+  | 'moving-game'
+  | 'revealing';
 
 /* eslint-disable no-unused-vars -- Parameter names document the callback. */
 export type Operate = (

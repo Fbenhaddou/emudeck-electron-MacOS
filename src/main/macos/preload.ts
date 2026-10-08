@@ -33,6 +33,12 @@ const api: MacAPI = Object.freeze({
     ipcRenderer.invoke('mac:restore-saves', target),
   revealSaves: (emulator: string) =>
     ipcRenderer.invoke('mac:reveal-saves', emulator),
+  checkLibrary: () => ipcRenderer.invoke('mac:check-library'),
+  // Single forwarded issue id; main accepts only ids from its own last check.
+  fixLibraryIssue: (id: string) =>
+    ipcRenderer.invoke('mac:fix-library-issue', id),
+  revealLibraryIssue: (id: string) =>
+    ipcRenderer.invoke('mac:reveal-library-issue', id),
   getStatus: () => ipcRenderer.invoke('mac:status'),
   onRefreshStatus: (callback: () => void) => {
     if (typeof callback !== 'function')

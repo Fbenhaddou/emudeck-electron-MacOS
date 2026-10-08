@@ -1,6 +1,7 @@
 import type { MutableRefObject } from 'react';
 import type { LibraryOverview } from '../../../shared/macos';
 import { Caution, Hero, MiddlePath } from '../controls';
+import LibraryCheckSection from './LibraryCheck';
 import type { PageProps } from './types';
 
 export default function LibraryPage({
@@ -13,12 +14,14 @@ export default function LibraryPage({
   choose,
   reveal,
   revealSystem,
+  refreshOverview,
   libraryErrorMessage,
 }: PageProps & {
   overview: LibraryOverview | null;
   choose: () => Promise<void>;
   reveal: () => Promise<void>;
   revealSystem: (id: string) => Promise<void>;
+  refreshOverview: () => Promise<void>;
   libraryErrorMessage: MutableRefObject<HTMLDivElement | null>;
 }) {
   const dolphinOperation = status.dolphin.operation;
@@ -169,6 +172,13 @@ export default function LibraryPage({
             Put games directly in each system’s folder. Counts update when you
             return to this page.
           </p>
+          <LibraryCheckSection
+            disabled={emulatorBusy}
+            operate={async (next, operation) => {
+              await operate(next, operation);
+              await refreshOverview();
+            }}
+          />
         </>
       )}
     </>

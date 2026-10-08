@@ -445,6 +445,7 @@ export default function MacApp() {
                     choose={choose}
                     reveal={reveal}
                     revealSystem={revealSystem}
+                    refreshOverview={refreshOverview}
                     libraryErrorMessage={libraryErrorMessage}
                   />
                 )}
