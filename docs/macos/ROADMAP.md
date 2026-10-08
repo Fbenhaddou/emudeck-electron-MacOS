@@ -39,6 +39,25 @@ Adding many emulators to today's structure would multiply the cost of every late
   - both smoke harness lists.
 - [ ] One registry drives Console Mode systems, the library overview and firmware. A new emulator then touches only its own component folder plus one registry line.
   - **Done when:** adding a stub component needs no edits elsewhere except the registry and its tests.
+- [ ] **Folder-format games.** The framework currently accepts only single-file games (`validateGame` requires a regular file), but PS4 (shadPS4), PS3 (RPCS3) and Wii U (Cemu) games are folders. Support folder games end to end:
+  - component manifests declare a game as a file or as a folder with a required marker (e.g. `eboot.bin`);
+  - safe validation (no symlinks escaping the library, bounded scan);
+  - ES-DE catalog entries;
+  - library counts;
+  - launch argv.
+  - **Done when:** a synthetic folder game passes catalog → launch-plan → validation tests, with traversal and symlink refusals.
+- [ ] **PS4 research spike** (owner priority; shapes the framework, so do it in this phase). Research shadPS4's current state on macOS:
+  - official release source and whether it has a native Apple Silicon build;
+  - Metal/MoltenVK path;
+  - compatibility and performance on M-series chips;
+  - which PS4 system modules (firmware) users must dump from their own console, and where they go;
+  - the expected game layout (game folder, updates, DLC);
+  - controller and DualSense support;
+  - config files and command-line launch;
+  - ES-DE's `ps4` system support;
+  - legally redistributable PS4 homebrew usable as a test fixture;
+  - license.
+  - Write `docs/macos/research/shadps4-component.md`, with a go / experimental / not-yet recommendation and RAM/chip minimums based on evidence.
 - [ ] macOS ARM64 GitHub Actions workflow.
   - Runs jest, typecheck, lint, `build:macos` (module boundary) and smoke.
   - Existing Linux/Windows CI untouched.
@@ -122,7 +141,18 @@ Order, by value and ease:
 - [ ] **Flycast** (Dreamcast).
 - [ ] **RPCS3** (PS3). Official Sony firmware workflow (see Phase 3).
 - [ ] **Cemu** (Wii U). User-supplied keys, treated like firmware.
-- [ ] **Vita3K** (PS Vita) and **shadPS4** (PS4): only if mature on Apple Silicon at the time; mark experimental.
+- [ ] **shadPS4** (PS4), owner priority: a committed target, scheduled right after PCSX2 so the folder-game and firmware work is fresh. Labelled **Experimental** in the UI with plain expectations (limited compatibility, demanding on hardware).
+  - Requirements:
+    - user-dumped PS4 system modules through the firmware manager;
+    - user's own game dumps only, never decrypted commercial content;
+    - capability check (RAM, GPU family) with an honest warning on lower-end Macs;
+    - managed DualSense controls;
+    - exit hold;
+    - Console Mode `ps4` system;
+    - separate folders for updates and DLC.
+  - If shadPS4 has no usable native Apple Silicon build when we reach it: say so in the app (no Rosetta install), and keep the component ready behind a version check so it switches on when upstream ships.
+  - **Done when:** a legal PS4 homebrew fixture launches from Console Mode with the DualSense and exits cleanly; the owner verifies one of their own dumped games.
+- [ ] **Vita3K** (PS Vita): only if mature on Apple Silicon at the time; mark experimental.
 - [-] Switch emulation: deliberately excluded (legal risk; console keys).
 - [ ] **Alternate emulator per system** (advanced). Example: PS1 via DuckStation or a RetroArch core. A per-system choice with sensible default.
 
@@ -172,9 +202,20 @@ Order, by value and ease:
 
 ## Phase 7 — Ship it
 
-- [ ] **(owner)** Developer ID Application certificate and notarytool keychain profile.
+Current state of the three distribution blockers (2026-10-08):
+
+- **Signing and notarization:** the pipeline is ready and its refusal paths are tested (`npm run release:macos`, docs/macos/RELEASING.md). Waiting only on the owner's Developer ID.
+- **Licensing:** resolved for the Mac app (Decision 010). The GUI submodule is not in the Mac package at all; `verify-macos-modules.js` proves it on every build. The package is GPL-3.0-or-later with all notices and an exact-source notice. Remaining:
+  - the owner's sign-off;
+  - a license check of every emulator, ES-DE theme and RetroArch core as each is added.
+  - The submodule question still applies to upstream's Linux/Windows build, which this project does not ship.
+- **Clean-install testing:** not started. It needs a second macOS user account (the owner creates it; admin password), a reboot, and an external drive.
+
+- [ ] **(owner)** Developer ID Application certificate (Apple Developer Program) and a notarytool keychain profile. Steps in RELEASING.md.
+- [ ] **(owner)** License sign-off: read Decision 010 and confirm GPL-3.0-or-later distribution of the Mac app.
 - [ ] First `npm run release:macos`: signed, notarized and stapled app and DMG; manifest with SHA-256.
-- [ ] **Clean-environment gauntlet** on the downloaded, quarantined DMG:
+- [ ] **Unsigned dry run first** (can start before the Developer ID). On a second macOS user account (the owner creates it), install the unsigned DMG and record every Gatekeeper prompt. Run first launch, onboarding, one emulator, a reboot and an external drive. This finds clean-environment bugs early; the signed run below then only re-checks trust.
+- [ ] **(owner)** **Clean-environment gauntlet** on the downloaded, quarantined, signed DMG:
   - new macOS user;
   - install;
   - onboarding;
