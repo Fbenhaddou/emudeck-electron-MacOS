@@ -6,6 +6,7 @@ import { randomBytes } from 'crypto';
 import { dolphin } from '../components/dolphin';
 import { applyManagedInput, isInputFamily } from '../components/dolphin/input';
 import { detectControllers, primaryController } from './controllers';
+import { diagnosticEvent } from './diagnostics';
 import { readStickResponse } from './preferences';
 import { prepareDolphinLibrary } from './dolphin-library';
 import { createSystemsCatalog } from '../components/es-de/catalog';
@@ -224,7 +225,7 @@ export function consoleDependencies(
         buffer = lines.pop() || '';
         lines.forEach((line) => {
           if (line !== 'exit-hold') return;
-          process.stderr.write(`${JSON.stringify({ event: 'exit-hold' })}\n`);
+          diagnosticEvent({ event: 'exit-hold' });
           onHold();
         });
       });
@@ -238,9 +239,7 @@ export function consoleDependencies(
       const controller = primaryController(await detectControllers());
       const family = controller?.family || 'none';
       if (!isInputFamily(family)) {
-        process.stderr.write(
-          `${JSON.stringify({ event: 'game-input', family, result: 'unmanaged' })}\n`,
-        );
+        diagnosticEvent({ event: 'game-input', family, result: 'unmanaged' });
         return;
       }
       await prepareDolphinLibrary(library);
@@ -251,9 +250,7 @@ export function consoleDependencies(
         family,
         await readStickResponse(paths.preferencesFile),
       );
-      process.stderr.write(
-        `${JSON.stringify({ event: 'game-input', family, result: result.files })}\n`,
-      );
+      diagnosticEvent({ event: 'game-input', family, result: result.files });
     },
     startBroker: startConsoleBroker,
     restoreFocus: (pid, bundle) =>

@@ -21,6 +21,7 @@ const api: MacAPI = Object.freeze({
   playEmulator: (id: PinnedEmulatorID) =>
     ipcRenderer.invoke('mac:play-emulator', id),
   getLibraryOverview: () => ipcRenderer.invoke('mac:library-overview'),
+  exportDiagnostics: () => ipcRenderer.invoke('mac:export-diagnostics'),
   // Single forwarded ids; main accepts only ids its components declare.
   addFirmware: (id: string) => ipcRenderer.invoke('mac:add-firmware', id),
   revealSystem: (id: string) => ipcRenderer.invoke('mac:reveal-system', id),

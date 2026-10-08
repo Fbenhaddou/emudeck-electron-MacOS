@@ -36,7 +36,8 @@ type Action =
   | 'resetting'
   | 'installing-console'
   | 'opening-console'
-  | 'adding-firmware';
+  | 'adding-firmware'
+  | 'exporting-diagnostics';
 const sections: { title: string; pages: Page[] }[] = [
   {
     title: 'Workspace',
@@ -1432,6 +1433,39 @@ export default function MacApp() {
                     <p className="footnote">
                       HDR and advanced controller capabilities have not been
                       verified.
+                    </p>
+                    <section
+                      className="group"
+                      aria-label="Diagnostics"
+                      aria-busy={action === 'exporting-diagnostics'}
+                    >
+                      <div className="row">
+                        <div className="row-text">
+                          <h3>Diagnostics Report</h3>
+                          <p>
+                            Versions, settings states and recent events, to help
+                            troubleshoot a problem.
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            void operate('exporting-diagnostics', () =>
+                              window.mac.exportDiagnostics(),
+                            );
+                          }}
+                        >
+                          {action === 'exporting-diagnostics'
+                            ? 'Exporting…'
+                            : 'Export…'}
+                        </button>
+                      </div>
+                    </section>
+                    <p className="footnote">
+                      The report never includes game names, file paths,
+                      controller names or your account name. It stays on your
+                      Mac until you choose to share it.
                     </p>
                   </>
                 )}

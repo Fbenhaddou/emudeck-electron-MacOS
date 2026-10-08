@@ -23,7 +23,7 @@ describe('actual frozen macOS preload bridge', () => {
     });
   });
 
-  it('exposes only eighteen fixed methods and no generic IPC primitive', () => {
+  it('exposes only nineteen fixed methods and no generic IPC primitive', () => {
     expect(exposeInMainWorld).toHaveBeenCalledTimes(1);
     expect(exposeInMainWorld).toHaveBeenCalledWith('mac', api);
     expect(Object.isFrozen(api)).toBe(true);
@@ -31,6 +31,7 @@ describe('actual frozen macOS preload bridge', () => {
       'addFirmware',
       'chooseLibrary',
       'enterConsole',
+      'exportDiagnostics',
       'getControllers',
       'getLibraryOverview',
       'getStatus',
@@ -62,6 +63,7 @@ describe('actual frozen macOS preload bridge', () => {
     ['getControllers', 'mac:controllers'],
     ['useRecommendedControls', 'mac:use-recommended-controls'],
     ['getLibraryOverview', 'mac:library-overview'],
+    ['exportDiagnostics', 'mac:export-diagnostics'],
   ])('does not forward renderer arguments from %s', async (method, channel) => {
     const call = api[method as Exclude<keyof MacAPI, 'onRefreshStatus'>] as (
       ...args: unknown[]

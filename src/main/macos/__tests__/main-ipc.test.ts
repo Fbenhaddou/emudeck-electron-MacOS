@@ -30,6 +30,7 @@ const channels = [
   'mac:library-overview',
   'mac:add-firmware',
   'mac:reveal-system',
+  'mac:export-diagnostics',
 ];
 
 function createFixture() {

@@ -81,6 +81,7 @@ async function run() {
     'addFirmware',
     'chooseLibrary',
     'enterConsole',
+    'exportDiagnostics',
         'getControllers',
     'getLibraryOverview',
     'getStatus',

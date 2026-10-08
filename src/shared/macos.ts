@@ -127,4 +127,5 @@ export interface MacAPI {
   getLibraryOverview(): Promise<LibraryOverview>;
   addFirmware(id: string): Promise<ActionResult>;
   revealSystem(id: string): Promise<ActionResult>;
+  exportDiagnostics(): Promise<ActionResult>;
 }

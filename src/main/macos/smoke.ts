@@ -382,6 +382,7 @@ export default class SmokeHarness {
       'addFirmware',
       'chooseLibrary',
       'enterConsole',
+      'exportDiagnostics',
       'getControllers',
       'getLibraryOverview',
       'getStatus',

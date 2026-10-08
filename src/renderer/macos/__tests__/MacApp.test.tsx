@@ -123,6 +123,7 @@ beforeEach(() => {
     getLibraryOverview: jest.fn(async () => overview),
     addFirmware: jest.fn(async () => ({ ok: true as const })),
     revealSystem: jest.fn(async () => ({ ok: true as const })),
+    exportDiagnostics: jest.fn(async () => ({ ok: true as const })),
   };
 });
 afterEach(() => {
@@ -633,4 +634,16 @@ describe('library systems and firmware', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Firmware' }));
     expect(await screen.findByText('No library available')).toBeInTheDocument();
   });
+});
+
+it('exports diagnostics from This Mac through its fixed method', async () => {
+  render(<MacApp />);
+  fireEvent.click(await screen.findByRole('button', { name: 'This Mac' }));
+  fireEvent.click(await screen.findByRole('button', { name: 'Export…' }));
+  await waitFor(() =>
+    expect(window.mac.exportDiagnostics).toHaveBeenCalledWith(),
+  );
+  expect(
+    screen.getByText(/never includes game names, file paths/),
+  ).toBeInTheDocument();
 });

@@ -61,6 +61,12 @@ import {
   listControllers,
   primaryController,
 } from './controllers';
+import {
+  buildDiagnostics,
+  diagnosticEvent,
+  recentEvents,
+  writeDiagnostics,
+} from './diagnostics';
 import { readStickResponse, writeStickResponse } from './preferences';
 import SmokeHarness from './smoke';
 
@@ -148,9 +154,7 @@ const ppssppRuntime = new EmulatorRuntime(
         configuration,
         path.join(user, '.emulation-workspace-input.json'),
       );
-      process.stderr.write(
-        `${JSON.stringify({ event: 'ppsspp-input', result: result.files })}\n`,
-      );
+      diagnosticEvent({ event: 'ppsspp-input', result: result.files });
     },
     assertLibrary: async (root) => {
       if ((await availableLibrary()) !== root)
@@ -219,9 +223,7 @@ consoleSession = new ConsoleSession(
               setTimeout(resolve, milliseconds);
             }),
         ).then((outcome) =>
-          process.stderr.write(
-            `${JSON.stringify({ event: 'manager-focus', outcome })}\n`,
-          ),
+          diagnosticEvent({ event: 'manager-focus', outcome }),
         );
       },
     },
@@ -231,18 +233,16 @@ consoleSession = new ConsoleSession(
   () => {
     // Structured, path-free diagnostics: states and outcomes only.
     const report = consoleSession?.report;
-    process.stderr.write(
-      `${JSON.stringify({
-        event: 'console-mode',
-        state: consoleSession?.state,
-        startFocus: report?.startFocus ?? null,
-        gameFocus: report?.focus ?? [],
-        exit: report?.frontendExit ?? null,
-        exitRequests: report?.exitRequests ?? 0,
-        forcedStops: report?.forcedStops ?? 0,
-        error: report?.error ?? null,
-      })}\n`,
-    );
+    diagnosticEvent({
+      event: 'console-mode',
+      state: consoleSession?.state,
+      startFocus: report?.startFocus ?? null,
+      gameFocus: report?.focus ?? [],
+      exit: report?.frontendExit ?? null,
+      exitRequests: report?.exitRequests ?? 0,
+      forcedStops: report?.forcedStops ?? 0,
+      error: report?.error ?? null,
+    });
     // eslint-disable-next-line no-use-before-define -- Hoisted; runs after startup.
     refreshStatusFromMenu();
   },
@@ -547,32 +547,35 @@ ipcMain.handle(
     }
   },
 );
+async function controllersStatus(): Promise<ControllersStatus> {
+  const [controllers, stickResponse, detected] = await Promise.all([
+    listControllers(path.join(helpers, 'console-guardian')),
+    readStickResponse(controllerPreferences),
+    detectControllers(),
+  ]);
+  let dolphinControls: ControllersStatus['dolphinControls'] = 'no-library';
+  try {
+    const library = await availableLibrary();
+    const { configuration, ownership } = dolphinInputPaths(library);
+    dolphinControls = await inputState(configuration, ownership);
+  } catch {
+    dolphinControls = 'no-library';
+  }
+  return {
+    controllers,
+    steamInput: await steamInputActive(detected),
+    stickResponse,
+    dolphinControls,
+    recommendedAvailable: isInputFamily(
+      primaryController(detected)?.family || 'none',
+    ),
+  };
+}
 ipcMain.handle(
   'mac:controllers',
   async (event, ...args): Promise<ControllersStatus> => {
     validateCaller(event, args);
-    const [controllers, stickResponse, detected] = await Promise.all([
-      listControllers(path.join(helpers, 'console-guardian')),
-      readStickResponse(controllerPreferences),
-      detectControllers(),
-    ]);
-    let dolphinControls: ControllersStatus['dolphinControls'] = 'no-library';
-    try {
-      const library = await availableLibrary();
-      const { configuration, ownership } = dolphinInputPaths(library);
-      dolphinControls = await inputState(configuration, ownership);
-    } catch {
-      dolphinControls = 'no-library';
-    }
-    return {
-      controllers,
-      steamInput: await steamInputActive(detected),
-      stickResponse,
-      dolphinControls,
-      recommendedAvailable: isInputFamily(
-        primaryController(detected)?.family || 'none',
-      ),
-    };
+    return controllersStatus();
   },
 );
 ipcMain.handle(
@@ -727,43 +730,98 @@ const firmwareIDs = firmwareRequirements.map((requirement) => requirement.id);
 const systemIDs = consoleEmulators.map((emulator) => emulator.system.id);
 const systemNames: Record<string, string> = { gc: 'GameCube', psp: 'PSP' };
 
+async function libraryOverview(): Promise<LibraryOverview> {
+  let library: string;
+  try {
+    library = await availableLibrary();
+  } catch {
+    return { available: false, systems: [], firmware: [] };
+  }
+  const games = await listGames(library, consoleEmulators);
+  const systems = await Promise.all(
+    consoleEmulators.map(async (emulator) => ({
+      id: emulator.system.id,
+      name: systemNames[emulator.system.id] || emulator.system.fullname,
+      emulator: emulator.system.label,
+      installed: await emulator.installed().catch(() => false),
+      games: games.filter((game) => game.system === emulator.system.id).length,
+      folder: path.relative(library, emulator.adapter.paths(library).roms),
+    })),
+  );
+  const firmware = (
+    await firmwareStatus(
+      library,
+      consoleEmulators.map((emulator) => emulator.adapter),
+    ).catch(() => [])
+  ).map((item) => ({
+    id: item.id,
+    system: item.system,
+    title: item.title,
+    purpose: item.purpose,
+    required: item.required,
+    state: item.state,
+    detail: item.detail,
+  }));
+  return { available: true, systems, firmware };
+}
 ipcMain.handle(
   'mac:library-overview',
   async (event, ...args): Promise<LibraryOverview> => {
     validateCaller(event, args);
-    let library: string;
+    return libraryOverview();
+  },
+);
+ipcMain.handle(
+  'mac:export-diagnostics',
+  async (event, ...args): Promise<ActionResult> => {
+    validateCaller(event, args);
     try {
-      library = await availableLibrary();
+      const [status, overview, controllers] = await Promise.all([
+        getStatus(),
+        libraryOverview(),
+        controllersStatus().catch(() => null),
+      ]);
+      const now = new Date();
+      const secrets = [
+        { value: os.homedir(), placeholder: '<home>' },
+        { value: os.userInfo().username, placeholder: '<user>' },
+        { value: os.hostname().replace(/\.local$/, ''), placeholder: '<host>' },
+        { value: app.getPath('userData'), placeholder: '<app-data>' },
+      ];
+      if (status.library?.path) {
+        secrets.push({ value: status.library.path, placeholder: '<library>' });
+        const real = await fs.realpath(status.library.path).catch(() => null);
+        if (real) secrets.push({ value: real, placeholder: '<library>' });
+      }
+      const report = buildDiagnostics({
+        status,
+        overview,
+        controllers,
+        events: recentEvents(),
+        context: { secrets },
+        now,
+      });
+      const choice = await dialog.showSaveDialog(mainWindow!, {
+        title: 'Export Diagnostics',
+        message:
+          'The report lists versions, settings states and recent events. It contains no game names, file paths or account names.',
+        defaultPath: path.join(
+          app.getPath('desktop'),
+          `Emulation Workspace Diagnostics ${now.toISOString().slice(0, 10)}.json`,
+        ),
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+      if (choice.canceled || !choice.filePath) return { ok: true };
+      await writeDiagnostics(choice.filePath, report);
+      shell.showItemInFolder(choice.filePath);
+      return { ok: true };
     } catch {
-      return { available: false, systems: [], firmware: [] };
+      return {
+        ok: false,
+        error:
+          'The diagnostics report could not be saved. Choose another location and try again.',
+      };
     }
-    const games = await listGames(library, consoleEmulators);
-    const systems = await Promise.all(
-      consoleEmulators.map(async (emulator) => ({
-        id: emulator.system.id,
-        name: systemNames[emulator.system.id] || emulator.system.fullname,
-        emulator: emulator.system.label,
-        installed: await emulator.installed().catch(() => false),
-        games: games.filter((game) => game.system === emulator.system.id)
-          .length,
-        folder: path.relative(library, emulator.adapter.paths(library).roms),
-      })),
-    );
-    const firmware = (
-      await firmwareStatus(
-        library,
-        consoleEmulators.map((emulator) => emulator.adapter),
-      ).catch(() => [])
-    ).map((item) => ({
-      id: item.id,
-      system: item.system,
-      title: item.title,
-      purpose: item.purpose,
-      required: item.required,
-      state: item.state,
-      detail: item.detail,
-    }));
-    return { available: true, systems, firmware };
   },
 );
 ipcMain.handle(
