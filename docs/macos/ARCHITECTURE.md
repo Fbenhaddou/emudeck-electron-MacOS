@@ -19,3 +19,15 @@ The GUI submodule is pinned at `b5efe87b50ea2395f32e67cfe7105fcb79f03cad` (`src/
 Keep the existing application, bundler, release layout, and upstream paths. Select platform-specific main/preload/renderer entries at build time. The Mac entry does not import the legacy shell broker. This is an incremental platform boundary, not a replacement repository. New main-process services own state and native capabilities; a sandboxed renderer calls explicit typed preload methods. Components own metadata and behavior; shared services own installation transactions, filesystem safety and process supervision.
 
 Machine state belongs in Application Support/Emulation Workspace. User-chosen library content remains portable. Never silently migrate ~/.config/EmuDeck or change existing saves. Management and ES-DE console frontend remain distinct. See COMPONENT_SPEC.md, SECURITY.md and DECISIONS.md.
+
+## Mac main process layout (2026-10-08)
+
+`src/main/macos/main.ts` is only the composition root: app identity, the smoke/test profile guard, then it wires the domain modules in `src/main/macos/app/`:
+
+- `context.ts`: the window, library lookup, the busy guard (`busy`, `addBusy`, `exclusive`) and `handle()`, which validates every IPC caller (trusted main frame, argument allowlist) before a handler runs;
+- `emulators.ts`: Dolphin, the pinned-app emulators, the system list, and install/play/reset handlers;
+- `console.ts`: the ES-DE session, its install (license sheet answered only by the user) and enter handlers;
+- `controllers.ts`, `library.ts`, `firmware.ts`, `diagnostics.ts`, `status.ts`: one domain each, registering its own handlers;
+- `window.ts`: the window, menu, single-instance and quit guard.
+
+Packaging while the owner's test app is running from `release/build-macos/mac-arm64` would replace a bundle in use. Package into `release/build-macos/staging` instead (`-c.directories.output=release/build-macos/staging`; the folder is git-ignored).

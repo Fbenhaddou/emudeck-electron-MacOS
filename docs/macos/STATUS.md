@@ -1,6 +1,6 @@
 # Status
 
-Development checkpoint, 2026-10-04. This is not a production-ready emulator environment. The first Dolphin / GameCube slice remains the gate before adding other emulators.
+Development checkpoint, 2026-10-08. This is not a production-ready emulator environment. The first Dolphin / GameCube slice remains the gate before adding other emulators.
 
 | Area                                         | Status   | Evidence / remaining work                                                                                                                                                                                                                                                                                                                        |
 | -------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

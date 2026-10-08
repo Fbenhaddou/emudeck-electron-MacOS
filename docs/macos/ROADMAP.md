@@ -24,14 +24,16 @@ Legend: `[ ]` to do · `[~]` built, awaiting verification · `[x]` done · `[-]`
 - [~] **(owner)** A real diagnostics report after a Console Mode session. Review it by hand: no names, paths or account data.
 - [ ] **(owner)** Bluetooth DualSense, and two controllers at once.
 - [ ] Console Mode crash reconciliation on a real ES-DE crash: the manager comes back, and the state is honest.
+  - 2026-10-08: implemented and unit-tested (SIGABRT mid-game: waits for the game, removes the runtime, shows the manager with an honest message; stray unisolated ES-DE killed on next start). The real crash needs a working ES-DE, so it waits on the ES-DE repair above.
 
 ## Phase 1 — Code health before scaling (proposed)
 
 Adding many emulators to today's structure would multiply the cost of every later change.
 
-- [ ] Split `src/main/macos/main.ts` (~1,200 lines) into per-domain modules: library, emulators, console, controllers, firmware, diagnostics, window.
+- [x] Split `src/main/macos/main.ts` (~1,200 lines) into per-domain modules: library, emulators, console, controllers, firmware, diagnostics, window.
   - Each module registers its own IPC handlers.
   - Behaviour unchanged; all tests green.
+  - Done 2026-10-08: `main.ts` is 98 lines; modules in `src/main/macos/app/` (ARCHITECTURE.md). 576 tests, typecheck, lint, production and packaged smoke unchanged.
 - [ ] Split `src/renderer/macos/MacApp.tsx` (~1,500 lines) into one component per page, plus shared controls (`Hero`, `Segmented`, `Spinner`…).
 - [ ] Generate the four IPC/bridge inventories from one source, so a new method can't be forgotten in one of them:
   - the preload test;
@@ -59,6 +61,7 @@ Adding many emulators to today's structure would multiply the cost of every late
   - license.
   - Write `docs/macos/research/shadps4-component.md`, with a go / experimental / not-yet recommendation and RAM/chip minimums based on evidence.
 - [ ] macOS ARM64 GitHub Actions workflow.
+  - 2026-10-08: `.github/workflows/macos-smoke.yml` already exists but has never run (it triggers only on pull requests and is not on the default branch).
   - Runs jest, typecheck, lint, `build:macos` (module boundary) and smoke.
   - Existing Linux/Windows CI untouched.
 
