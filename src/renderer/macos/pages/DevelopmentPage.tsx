@@ -13,20 +13,24 @@ export default function DevelopmentPage() {
           <dd>Available</dd>
         </div>
         <div>
-          <dt>Dolphin installation</dt>
+          <dt>Emulators · Dolphin and PPSSPP</dt>
           <dd>Preview</dd>
         </div>
         <div>
           <dt>Console Mode · ES-DE</dt>
-          <dd>Planned</dd>
+          <dd>Preview</dd>
         </div>
         <div>
-          <dt>Controller support</dt>
+          <dt>DualSense over USB</dt>
+          <dd>Tested</dd>
+        </div>
+        <div>
+          <dt>Bluetooth and other controllers</dt>
           <dd>Not tested</dd>
         </div>
         <div>
           <dt>Signed distribution</dt>
-          <dd>Not configured</dd>
+          <dd>Not yet available</dd>
         </div>
       </dl>
       <p className="footnote">

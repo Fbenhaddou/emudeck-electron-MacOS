@@ -112,8 +112,8 @@ export default function ConsolePage({
         its license. Games and saves stay in your library.
       </p>
       <p className="footnote">
-        Controller-only play is in preview: physical DualSense testing has not
-        been completed yet.
+        Tested with a DualSense connected by USB. Bluetooth and other
+        controllers have not been tested yet.
       </p>
     </>
   );
