@@ -4,6 +4,7 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import {
+  SnapshotError,
   listSnapshots,
   recoverInterrupted,
   restoreSnapshot,
@@ -324,23 +325,15 @@ describe('save snapshots', () => {
     await fs.writeFile(
       path.join(root2, 'restore-journal.json'),
       JSON.stringify({
-        version: 1,
-        partial,
+        version: 2,
+        token: '000009-2026-10-01T10-00-00-000Z-before-restore',
+        suffix: '000009',
         folders: [
-          {
-            name: 'saves',
-            live: saves(),
-            staging: `${saves()}.restoring-000009`,
-            hadLive: true,
-          },
-          {
-            name: 'states',
-            live: states(),
-            staging: `${states()}.restoring-000009`,
-            hadLive: true,
-          },
+          { name: 'saves', hadLive: true },
+          { name: 'states', hadLive: true },
         ],
         exclude: [],
+        committed: false,
       }),
     );
     await fs.rename(saves(), path.join(partial, 'saves'));
@@ -423,5 +416,156 @@ describe('save snapshots', () => {
     spy.mockRestore();
     expect(await tree(path.dirname(saves()))).toEqual(before);
     await expect(fs.lstat(states())).rejects.toThrow();
+  });
+
+  async function crashAfterSwap(committed: boolean) {
+    const snapshot = await takeSnapshot(library, source, 'manual');
+    await fs.writeFile(path.join(saves(), 'MemoryCardA.USA.raw'), 'current');
+    const root2 = snapshotRoot(library, 'dolphin');
+    const token = '000009-2026-10-01T10-00-00-000Z-before-restore';
+    const partial = path.join(root2, `${token}.partial`);
+    await fs.mkdir(partial);
+    await fs.rename(saves(), path.join(partial, 'saves'));
+    await fs.rename(states(), path.join(partial, 'states'));
+    await fs.cp(path.join(root2, snapshot!.id, 'saves'), saves(), {
+      recursive: true,
+    });
+    await fs.cp(path.join(root2, snapshot!.id, 'states'), states(), {
+      recursive: true,
+    });
+    await fs.writeFile(
+      path.join(partial, 'manifest.json'),
+      JSON.stringify({
+        version: 1,
+        emulator: 'dolphin',
+        reason: 'before-restore',
+        created: '2026-10-01T10:00:00.000Z',
+        sequence: 9,
+        folders: ['saves', 'states'],
+        files: [
+          {
+            path: 'saves/MemoryCardA.USA.raw',
+            bytes: 7,
+            sha256: 'x',
+            modified: 0,
+          },
+        ],
+      }),
+    );
+    await fs.writeFile(
+      path.join(root2, 'restore-journal.json'),
+      JSON.stringify({
+        version: 2,
+        token,
+        suffix: '000009',
+        folders: [
+          { name: 'saves', hadLive: true },
+          { name: 'states', hadLive: false },
+        ],
+        exclude: [],
+        committed,
+      }),
+    );
+    return { root2, token, snapshot: snapshot! };
+  }
+
+  it('finishes, never undoes, a restore that crashed after its commit point', async () => {
+    const { root2, token, snapshot } = await crashAfterSwap(true);
+    const restored = await tree(path.dirname(saves()));
+    await recoverInterrupted(library, source);
+    // The restored saves stay live; the previous ones are published as a backup.
+    expect(await tree(path.dirname(saves()))).toEqual(restored);
+    await expect(
+      fs.readFile(
+        path.join(root2, token, 'saves', 'MemoryCardA.USA.raw'),
+        'utf8',
+      ),
+    ).resolves.toBe('current');
+    const ids = (await listSnapshots(library, 'dolphin')).map(
+      (item) => item.id,
+    );
+    expect(ids).toEqual([token, snapshot.id]);
+    await expect(
+      fs.lstat(path.join(root2, 'restore-journal.json')),
+    ).rejects.toThrow();
+  });
+
+  it('recovers after the library folder was renamed or remounted', async () => {
+    await crashAfterSwap(false);
+    const moved = `${library} 1`;
+    await fs.rename(library, moved);
+    library = moved;
+    const user = path.join(moved, 'emulators', 'dolphin', 'User');
+    source = {
+      emulator: 'dolphin',
+      folders: {
+        saves: path.join(user, 'GC'),
+        states: path.join(user, 'StateSaves'),
+      },
+    };
+    await recoverInterrupted(library, source);
+    await expect(
+      fs.readFile(path.join(saves(), 'MemoryCardA.USA.raw'), 'utf8'),
+    ).resolves.toBe('current');
+  });
+
+  it('refuses clearly, and changes nothing, when the journal is unreadable', async () => {
+    await takeSnapshot(library, source, 'manual');
+    const root2 = snapshotRoot(library, 'dolphin');
+    await fs.writeFile(path.join(root2, 'restore-journal.json'), '{"version":');
+    const before = await tree(path.dirname(saves()));
+    await expect(takeSnapshot(library, source, 'manual')).rejects.toThrow(
+      SnapshotError,
+    );
+    expect(await tree(path.dirname(saves()))).toEqual(before);
+  });
+
+  it('ignores a half-written journal that never replaced the real one', async () => {
+    await takeSnapshot(library, source, 'manual');
+    const root2 = snapshotRoot(library, 'dolphin');
+    await fs.writeFile(path.join(root2, 'restore-journal.json.tmp'), '');
+    await fs.writeFile(path.join(states(), 'GXXE01.s01'), 'newer');
+    await expect(
+      takeSnapshot(library, source, 'manual'),
+    ).resolves.toMatchObject({
+      reason: 'manual',
+    });
+    await expect(
+      fs.lstat(path.join(root2, 'restore-journal.json.tmp')),
+    ).rejects.toThrow();
+  });
+
+  it('reports a restore whose last step failed as restored, and finishes it later', async () => {
+    const snapshot = await takeSnapshot(library, source, 'manual');
+    await fs.writeFile(path.join(saves(), 'MemoryCardA.USA.raw'), 'current');
+    const rename = fs.rename.bind(fs);
+    const spy = jest
+      .spyOn(fs, 'rename')
+      .mockImplementation(async (from, to) => {
+        if (String(from).endsWith('-before-restore.partial'))
+          throw Object.assign(new Error('EIO'), { code: 'EIO' });
+        return rename(from, to);
+      });
+    await expect(
+      restoreSnapshot(library, source, snapshot!.id),
+    ).rejects.toThrow('not yet published');
+    spy.mockRestore();
+    await expect(
+      fs.readFile(path.join(saves(), 'MemoryCardA.USA.raw'), 'utf8'),
+    ).resolves.toBe('card');
+    await recoverInterrupted(library, source);
+    const list = await listSnapshots(library, 'dolphin');
+    expect(list[0].reason).toBe('before-restore');
+    await expect(
+      fs.readFile(
+        path.join(
+          snapshotRoot(library, 'dolphin'),
+          list[0].id,
+          'saves',
+          'MemoryCardA.USA.raw',
+        ),
+        'utf8',
+      ),
+    ).resolves.toBe('current');
   });
 });

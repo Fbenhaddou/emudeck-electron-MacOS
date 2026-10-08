@@ -230,6 +230,11 @@ describe('actual macOS main IPC and quit boundaries', () => {
       selectLibrary: fixture.selectLibrary,
       recoverLibrarySettings: fixture.recoverLibrary,
     }));
+    // No real process listing in this suite; startup recovery must settle at once.
+    jest.doMock('../processes', () => ({
+      readProcessExecutables: async () => '',
+      hasManagedDolphin: async () => false,
+    }));
     jest.doMock('../dolphin-library', () => ({
       prepareDolphinLibrary: fixture.prepareLibrary,
     }));

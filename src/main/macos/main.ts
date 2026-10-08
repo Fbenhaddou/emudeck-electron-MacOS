@@ -95,9 +95,9 @@ registerDiagnosticsHandlers(context, {
 context.handle('mac:status', getStatus);
 
 // Finish or roll back a restore interrupted by a crash or an unplugged drive.
+// Holds the exclusive flag, so no request can start a restore meanwhile.
 void context
-  .availableLibrary()
-  .then((library) => saves.recover(library))
+  .exclusive(async () => saves.recover(await context.availableLibrary()))
   .catch(() => undefined);
 
 startApplication(context, {

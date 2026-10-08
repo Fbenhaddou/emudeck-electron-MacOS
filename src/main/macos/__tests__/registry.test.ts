@@ -97,7 +97,8 @@ describe('emulator registry', () => {
         handle: (channel: string, handler: Handler) =>
           handlers.set(channel, handler),
       },
-      dialog: {},
+      dialog: { showMessageBox: async () => ({ response: 1 }) },
+      shell: { openPath: async () => '' },
     }));
     jest.doMock('../library', () => ({
       readLibrary: async () => ({ path: library, available: true }),
@@ -118,7 +119,7 @@ describe('emulator registry', () => {
     } = require('../app/emulators');
     const { libraryOverview } = require('../app/library');
     const registerFirmwareHandlers = require('../app/firmware').default;
-    const { createSaves } = require('../app/saves');
+    const { createSaves, registerSavesHandlers } = require('../app/saves');
     /* eslint-enable global-require */
     const context = createContext({
       userData: path.join(root, 'user-data'),
@@ -130,9 +131,11 @@ describe('emulator registry', () => {
     const emulators = createEmulators(context, [...managedEmulators, stub]);
     const saves = createSaves(context, emulators);
     registerEmulatorHandlers(context, emulators, saves);
+    registerSavesHandlers(context, emulators, saves);
     registerFirmwareHandlers(context, emulators);
     const caller = { sender: contents, senderFrame: contents.mainFrame };
     return {
+      context,
       saves,
       emulators,
       overview: libraryOverview(context, emulators),
@@ -271,5 +274,68 @@ describe('emulator registry', () => {
       'saves/JAP/IPL.bin',
       'saves/USA/IPL.bin',
     ]);
+  });
+
+  it('backs up and restores through the real IPC handlers', async () => {
+    const saves = path.join(library, 'emulators', 'stubemu', 'saves');
+    await fs.mkdir(saves, { recursive: true });
+    await fs.writeFile(path.join(saves, 'slot1.sav'), 'chapter 3');
+    const { invoke } = load();
+    await expect(invoke('mac:back-up-saves', 'stubemu')).resolves.toEqual({
+      ok: true,
+    });
+    await fs.writeFile(path.join(saves, 'slot1.sav'), 'corrupted');
+    const overview = (await invoke('mac:saves')) as {
+      systems: Array<{ emulator: string; snapshots: Array<{ id: string }> }>;
+    };
+    const stubSaves = overview.systems.find(
+      (system) => system.emulator === 'stubemu',
+    )!;
+    expect(stubSaves.snapshots).toHaveLength(1);
+    await expect(
+      invoke('mac:restore-saves', `stubemu/${stubSaves.snapshots[0].id}`),
+    ).resolves.toEqual({ ok: true });
+    await expect(
+      fs.readFile(path.join(saves, 'slot1.sav'), 'utf8'),
+    ).resolves.toBe('chapter 3');
+    await expect(
+      invoke('mac:restore-saves', 'stubemu/../../etc'),
+    ).rejects.toThrow('not permitted');
+    await expect(
+      invoke('mac:restore-saves', `ppsspp/${stubSaves.snapshots[0].id}`),
+    ).resolves.toMatchObject({ ok: false });
+  });
+
+  it('never runs restore recovery while another operation holds the app', async () => {
+    const saves = path.join(library, 'emulators', 'stubemu', 'saves');
+    await fs.mkdir(saves, { recursive: true });
+    const backups = path.join(library, 'backups', 'saves', 'stubemu');
+    await fs.mkdir(backups, { recursive: true });
+    const journal = path.join(backups, 'restore-journal.json');
+    await fs.writeFile(
+      journal,
+      JSON.stringify({
+        version: 2,
+        token: '000001-2026-10-01T10-00-00-000Z-before-restore',
+        suffix: '000001',
+        folders: [{ name: 'saves', hadLive: true }],
+        exclude: [],
+        committed: false,
+      }),
+    );
+    const { context, invoke } = load();
+    let release!: () => void;
+    const held = context.exclusive(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    await invoke('mac:saves');
+    await expect(fs.lstat(journal)).resolves.toBeDefined();
+    release();
+    await held;
+    await invoke('mac:saves');
+    await expect(fs.lstat(journal)).rejects.toThrow();
   });
 });

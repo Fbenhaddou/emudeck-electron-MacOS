@@ -82,7 +82,10 @@ const MAX_DEPTH = 16;
 /** Clone on APFS (no extra space), copy elsewhere; never overwrite. */
 // eslint-disable-next-line no-bitwise -- copyfile flags.
 const COPY_FLAGS = constants.COPYFILE_FICLONE | constants.COPYFILE_EXCL;
-const ID = /^\d{6}-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-z-]+$/;
+/** A sealed snapshot's folder name: sequence, UTC time, reason. */
+export const SNAPSHOT_ID =
+  /^\d{6}-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-z-]+$/;
+const ID = SNAPSHOT_ID;
 const SEQUENCE = /^(\d{6})-/;
 const EMULATOR = /^[a-z][a-z0-9-]*$/;
 const FOLDER = /^[a-z][a-z0-9-]*$/;
@@ -350,28 +353,64 @@ async function prune(
   }
 }
 
+/**
+ * The restore journal. Paths are derived from the current library and save
+ * source, never stored, so a renamed library or a remounted drive still
+ * recovers. Written atomically (temporary file, then rename): it is either
+ * absent or complete.
+ */
 interface Journal {
-  version: 1;
-  /** The before-restore snapshot folder (partial) holding the moved live folders. */
-  partial: string;
+  version: 2;
+  /** The before-restore snapshot's name; its folder is `<token>.partial` until committed. */
+  token: string;
+  /** Staging folders are `<live>.restoring-<suffix>`. */
+  suffix: string;
   /** hadLive: the live folder existed before the restore. */
-  folders: Array<{
-    name: string;
-    live: string;
-    staging: string;
-    hadLive: boolean;
-  }>;
+  folders: Array<{ name: string; hadLive: boolean }>;
   exclude: string[];
+  /** Set once the previous saves are sealed: recovery finishes, never undoes. */
+  committed: boolean;
 }
 
 async function writeJournal(root: string, journal: Journal): Promise<void> {
-  const handle = await fs.open(path.join(root, JOURNAL), 'wx');
+  const temporary = path.join(root, `${JOURNAL}.tmp`);
+  const handle = await fs.open(temporary, 'w');
   try {
     await handle.writeFile(JSON.stringify(journal));
     await handle.sync();
   } finally {
     await handle.close();
   }
+  await fs.rename(temporary, path.join(root, JOURNAL));
+}
+
+async function readJournal(
+  root: string,
+  source: SnapshotSource,
+): Promise<Journal | null> {
+  // A temporary journal never replaced the real one: nothing happened from it.
+  await fs.rm(path.join(root, `${JOURNAL}.tmp`), { force: true });
+  const text = await fs
+    .readFile(path.join(root, JOURNAL), 'utf8')
+    .catch(() => null);
+  if (text === null) return null;
+  let journal: Journal;
+  try {
+    journal = JSON.parse(text) as Journal;
+  } catch {
+    throw new SnapshotError('Restore journal is unreadable');
+  }
+  if (
+    journal?.version !== 2 ||
+    !ID.test(journal.token) ||
+    !journal.token.endsWith('-before-restore') ||
+    !/^\d{6}$/.test(journal.suffix) ||
+    !Array.isArray(journal.folders) ||
+    journal.folders.some((folder) => !(folder.name in source.folders)) ||
+    !Array.isArray(journal.exclude)
+  )
+    throw new SnapshotError('Restore journal is unreadable');
+  return journal;
 }
 
 /** Moves firmware files (never swapped) from one save folder to another. */
@@ -393,55 +432,54 @@ async function carryExcluded(
 }
 
 /**
- * Undoes a journaled restore. Each live folder that was swapped gets its
- * original back. What was live instead is dropped only when it is certainly
- * this module's own copy (`ours`, the same process, nothing could have run);
- * after a crash it is kept as an 'interrupted' snapshot, since an emulator
- * may have written to it.
+ * Finishes a committed restore, or undoes one that was not committed. When
+ * undoing, each live folder that was swapped gets its original back; what was
+ * live instead is dropped only when it is certainly this module's own copy
+ * (`ours`: same process, nothing could have run), and otherwise kept as an
+ * 'interrupted' snapshot, since an emulator may have written to it.
  */
-async function rollBack(
+async function settleJournal(
   library: string,
   source: SnapshotSource,
   ours: boolean,
   now: Date,
 ): Promise<void> {
   const root = snapshotRoot(library, source.emulator);
-  const text = await fs
-    .readFile(path.join(root, JOURNAL), 'utf8')
-    .catch(() => null);
-  if (text === null) return;
-  const journal = JSON.parse(text) as Journal;
-  if (
-    journal.version !== 1 ||
-    path.dirname(journal.partial) !== root ||
-    !journal.partial.endsWith('.partial')
-  )
-    throw new SnapshotError('Unreadable restore journal');
+  const journal = await readJournal(root, source);
+  if (!journal) return;
+  const partial = path.join(root, `${journal.token}.partial`);
+  const staging = (name: string) =>
+    `${source.folders[name]}.restoring-${journal.suffix}`;
+  if (journal.committed) {
+    // The previous saves are sealed in the partial folder: publish them.
+    if (await realDirectory(partial)) {
+      const manifest = await readManifest(partial).catch(() => null);
+      if (manifest?.files.length)
+        await fs.rename(partial, path.join(root, journal.token));
+      else await removeIfEmpty(partial);
+    }
+    for (const folder of journal.folders)
+      if (await exists(staging(folder.name)))
+        await fs.rm(staging(folder.name), { recursive: true });
+    await fs.rm(path.join(root, JOURNAL));
+    return;
+  }
   let kept: string | null = null;
   for (const folder of journal.folders) {
-    // Only folders this source still names; never a path from the file alone.
-    if (
-      source.folders[folder.name] !== folder.live ||
-      folder.staging !== `${folder.live}.restoring-${folder.staging.slice(-6)}`
-    )
-      continue; // eslint-disable-line no-continue
-    const original = path.join(journal.partial, folder.name);
+    const live = source.folders[folder.name];
+    const original = path.join(partial, folder.name);
     const originalMoved = await realDirectory(original);
-    // The live folder now holds the restored copy when the original was moved
+    // The live folder holds the restored copy when the original was moved
     // away, or when there was no original and the staging folder is gone.
     const swapped =
-      originalMoved || (!folder.hadLive && !(await exists(folder.staging)));
-    if (swapped && (await realDirectory(folder.live))) {
+      originalMoved ||
+      (!folder.hadLive && !(await exists(staging(folder.name))));
+    if (swapped && (await realDirectory(live))) {
       // Firmware was carried into the restored folder; give it back first.
       if (originalMoved)
-        await carryExcluded(
-          journal.exclude,
-          folder.name,
-          folder.live,
-          original,
-        );
+        await carryExcluded(journal.exclude, folder.name, live, original);
       if (ours) {
-        await fs.rename(folder.live, folder.staging);
+        await fs.rename(live, staging(folder.name));
       } else {
         if (!kept) {
           kept = path.join(
@@ -450,13 +488,13 @@ async function rollBack(
           );
           await fs.mkdir(kept);
         }
-        await fs.rename(folder.live, path.join(kept, folder.name));
+        await fs.rename(live, path.join(kept, folder.name));
       }
     }
-    if (originalMoved) await fs.rename(original, folder.live);
+    if (originalMoved) await fs.rename(original, live);
     // Staging folders are copies of a sealed, verified snapshot: safe to drop.
-    if (await exists(folder.staging))
-      await fs.rm(folder.staging, { recursive: true });
+    if (await exists(staging(folder.name)))
+      await fs.rm(staging(folder.name), { recursive: true });
   }
   if (kept) {
     const name = path.basename(kept, '.partial');
@@ -472,7 +510,7 @@ async function rollBack(
     if (manifest.files.length) await fs.rename(kept, path.join(root, name));
     else await removeIfEmpty(kept);
   }
-  await removeIfEmpty(journal.partial);
+  await removeIfEmpty(partial);
   await fs.rm(path.join(root, JOURNAL));
 }
 
@@ -488,7 +526,8 @@ export async function recoverInterrupted(
 ): Promise<void> {
   checkSource(source);
   const root = snapshotRoot(library, source.emulator);
-  if (await realDirectory(root)) await rollBack(library, source, false, now);
+  if (await realDirectory(root))
+    await settleJournal(library, source, false, now);
   // Staging copies left by a crash before the journal existed.
   for (const live of Object.values(source.folders)) {
     const parent = path.dirname(live);
@@ -610,11 +649,14 @@ export async function restoreSnapshot(
   const token = snapshotName(sequence, now, 'before-restore');
   const suffix = String(sequence).padStart(6, '0');
   const journal: Journal = {
-    version: 1,
-    partial: path.join(root, `${token}.partial`),
+    version: 2,
+    token,
+    suffix,
     folders: [],
     exclude: [...(source.exclude || [])],
+    committed: false,
   };
+  const partial = path.join(root, `${token}.partial`);
   const staged = Object.entries(source.folders).map(([name, live]) => ({
     name,
     live,
@@ -650,44 +692,47 @@ export async function restoreSnapshot(
     throw error;
   }
   for (const [name, live] of Object.entries(source.folders))
-    journal.folders.push({
-      name,
-      live,
-      staging: `${live}.restoring-${suffix}`,
-      hadLive: await realDirectory(live),
-    });
+    journal.folders.push({ name, hadLive: await realDirectory(live) });
   const modified = new Map<string, number>();
   for (const file of await currentFiles(source))
     modified.set(file.path, file.modified);
   let before: SnapshotManifest;
   try {
-    await fs.mkdir(journal.partial);
+    await fs.mkdir(partial);
     await writeJournal(root, journal);
-    for (const folder of journal.folders) {
-      const moved = path.join(journal.partial, folder.name);
+    for (const folder of staged) {
+      const moved = path.join(partial, folder.name);
       if (await realDirectory(folder.live)) await fs.rename(folder.live, moved);
       await fs.rename(folder.staging, folder.live);
       // Firmware is not part of saves: it stays where it was.
       await carryExcluded(journal.exclude, folder.name, moved, folder.live);
     }
     before = await seal(
-      journal.partial,
+      partial,
       source,
       'before-restore',
       now,
       sequence,
       modified,
     );
+    // The commit point: from here, recovery finishes the restore.
+    await writeJournal(root, { ...journal, committed: true });
   } catch (error) {
-    await rollBack(library, source, true, now).catch(() => undefined);
-    await removeIfEmpty(journal.partial).catch(() => undefined);
+    await settleJournal(library, source, true, now).catch(() => undefined);
+    await removeIfEmpty(partial).catch(() => undefined);
+    // Without a journal nothing was swapped: staging folders are only our copies.
+    if (!(await exists(path.join(root, JOURNAL))))
+      for (const folder of staged)
+        await fs
+          .rm(folder.staging, { recursive: true, force: true })
+          .catch(() => undefined);
     throw error;
   }
-  // Committed: the restored saves are live and the previous ones are sealed.
-  if (before.files.length)
-    await fs.rename(journal.partial, path.join(root, token));
-  else await removeIfEmpty(journal.partial);
-  await fs.rm(path.join(root, JOURNAL));
+  try {
+    await settleJournal(library, source, true, now);
+  } catch {
+    throw new SnapshotError('Restored; previous saves not yet published');
+  }
   if (before.files.length) await prune(library, source.emulator, token);
   return { before: before.files.length ? info(token, before) : null };
 }

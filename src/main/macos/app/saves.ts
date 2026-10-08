@@ -6,6 +6,7 @@ import type { ComponentAdapter } from '../../components/types';
 import { diagnosticEvent } from '../diagnostics';
 import { readProcessExecutables } from '../processes';
 import {
+  SNAPSHOT_ID,
   SnapshotError,
   listSnapshots,
   recoverInterrupted,
@@ -19,8 +20,15 @@ import type { AppContext } from './context';
 import type { Emulators } from './emulators';
 
 /** 'emulator/snapshot-id' as the Saves page sends it; checked again against the live list. */
-const RESTORE_TARGET =
-  /^[a-z][a-z0-9-]*\/\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z-[a-z-]+$/;
+function isRestoreTarget(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  const [emulator, id, ...rest] = value.split('/');
+  return (
+    !rest.length &&
+    /^[a-z][a-z0-9-]*$/.test(emulator) &&
+    SNAPSHOT_ID.test(id ?? '')
+  );
+}
 
 function within(parent: string, child: string): boolean {
   return child === parent || child.startsWith(`${parent}/`);
@@ -64,6 +72,10 @@ export function backupRefusal(error: unknown, emulator: string): string | null {
   if (!(error instanceof SnapshotError)) return null;
   if (error.message.includes('not a real folder'))
     return `${emulator}’s saves folder is a link to another place, so it can’t be backed up safely. Replace the link with a real folder, then try again.`;
+  if (error.message.includes('journal'))
+    return `A previous restore of ${emulator}’s saves could not be finished or undone automatically, so nothing was changed. Your saves are safe in the library’s backups folder; diagnostics can help find them.`;
+  if (error.message.includes('not yet published'))
+    return `${emulator}’s saves were restored. The copy of your previous saves will finish saving the next time you open Saves or restart the app.`;
   if (error.message.includes('is running'))
     return `Quit ${emulator} first. Its saves can’t be backed up safely while it is open.`;
   return `${emulator}’s saves could not be backed up, so nothing was changed. Check that your library drive is connected and has free space.`;
@@ -166,7 +178,9 @@ export function createSaves(context: AppContext, emulators: Emulators) {
     } catch {
       return { available: false, systems: [] };
     }
-    await recover(library);
+    // Never alongside a restore or a game: only when nothing else is running.
+    if (!context.busy())
+      await context.exclusive(() => recover(library)).catch(() => undefined);
     const systems = await Promise.all(
       emulators.systems.map(async (entry) => ({
         emulator: entry.adapter.manifest.id,
@@ -283,8 +297,7 @@ export function registerSavesHandlers(
     },
     (values) =>
       values.length === 1 &&
-      typeof values[0] === 'string' &&
-      RESTORE_TARGET.test(values[0]) &&
+      isRestoreTarget(values[0]) &&
       emulatorIDs.includes(values[0].split('/')[0]),
   );
 
