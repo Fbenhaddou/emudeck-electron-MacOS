@@ -34,7 +34,8 @@ Adding many emulators to today's structure would multiply the cost of every late
   - Each module registers its own IPC handlers.
   - Behaviour unchanged; all tests green.
   - Done 2026-10-08: `main.ts` is 98 lines; modules in `src/main/macos/app/` (ARCHITECTURE.md). 576 tests, typecheck, lint, production and packaged smoke unchanged.
-- [ ] Split `src/renderer/macos/MacApp.tsx` (~1,500 lines) into one component per page, plus shared controls (`Hero`, `Segmented`, `Spinner`…).
+- [x] Split `src/renderer/macos/MacApp.tsx` (~1,500 lines) into one component per page, plus shared controls (`Hero`, `Segmented`, `Spinner`…).
+  - Done 2026-10-08: `MacApp.tsx` (window shell, 452 lines), `controls.tsx`, `pages/*Page.tsx` with shared `PageProps`. Tests, production and packaged smoke unchanged; captures reviewed.
 - [ ] Generate the four IPC/bridge inventories from one source, so a new method can't be forgotten in one of them:
   - the preload test;
   - the main-ipc channel list;

@@ -31,3 +31,5 @@ Machine state belongs in Application Support/Emulation Workspace. User-chosen li
 - `window.ts`: the window, menu, single-instance and quit guard.
 
 Packaging while the owner's test app is running from `release/build-macos/mac-arm64` would replace a bundle in use. Package into `release/build-macos/staging` instead (`-c.directories.output=release/build-macos/staging`; the folder is git-ignored).
+
+The renderer mirrors this: `src/renderer/macos/MacApp.tsx` is the window shell (navigation, status polling, shared action state), `controls.tsx` holds the shared controls (`Hero`, `Segmented`, `Spinner`, `MiddlePath`, `Caution`, `Symbol`) and `pages/` has one component per page, each receiving `PageProps`.
