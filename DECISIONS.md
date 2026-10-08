@@ -35,3 +35,15 @@ The macOS visual critic recommended disabling page zoom because native apps do n
 ## 009 — The manager owns its children's privacy identity
 
 macOS attributes a spawned process's protected-resource access (TCC) to the responsible launcher. ES-DE was terminated with SIGABRT when SDL probed Bluetooth controllers from a launcher lacking `NSBluetoothAlwaysUsageDescription`. The packaged app therefore declares every usage key its managed frontends and emulators need, with honest wording (Bluetooth now; camera before PPSSPP ships; microphone if a component emulates one). Developer harnesses that spawn emulators run inside the packaged binary through LaunchServices (`open -n --env ELECTRON_RUN_AS_NODE=1 -a …`) so their identity matches the product.
+
+## 010 — The Mac app is a GPL-3.0-or-later fork with a checked module boundary
+
+Upstream's `LICENSE.md` is GPL-3.0-or-later; `LICENSE` is the MIT notice of Electron React Boilerplate, from which the build tooling descends. The Mac package is distributed as GPL-3.0-or-later (`extraMetadata.license`), keeps both notices, and ships `licenses/SOURCE.txt` naming the exact public commit as Corresponding Source; `Info.plist` records that revision and whether the tree was dirty. The version line restarts at 0.1.0 rather than continuing EmuDeck's 2.x numbering.
+
+The GUI submodule's provenance question does not reach the Mac package: webpack stats show zero submodule or legacy renderer/main files, and the only bundled packages are react, react-dom, scheduler (MIT, notices shipped) and the css-loader runtime. `verify-macos-modules.js` now fails every Mac build that bundles anything outside `src/main/macos`, `src/main/components`, `src/renderer/macos`, `src/shared/macos.ts` or that package allowlist. The submodule stays in the repository for the upstream Linux/Windows build (Decision 001). This is an engineering record, not legal advice; the owner confirms before the first public release.
+
+## 011 — Hardened runtime with JIT only; sign outside iCloud
+
+Electron needs `com.apple.security.cs.allow-jit` and nothing else: an ad-hoc, hardened-runtime copy with only JIT (plus `disable-library-validation`, needed solely because ad-hoc signatures have no Team ID) passed the full packaged smoke on 2026-10-08. Upstream's file also grants `allow-unsigned-executable-memory`, so the Mac config uses its own `entitlements.macos-workspace.plist` and leaves upstream's untouched. Developer ID builds share one team and need no library-validation exception.
+
+A checkout in iCloud Drive gets `com.apple.FinderInfo`/File Provider attributes on bundle folders, which codesign rejects, and iCloud re-adds them within seconds. `afterPack` strips them, and `release:macos` stages the whole build in the system temporary folder. Releases use `notarytool` with a keychain profile; the upstream `electron-notarize`/Apple-ID-password hook is not used.

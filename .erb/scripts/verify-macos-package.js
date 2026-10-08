@@ -65,6 +65,18 @@ async function run() {
   assert.equal(metadata.author.name, config.extraMetadata.author.name);
   assert.equal(metadata.author.url, config.extraMetadata.author.url);
   assert.equal(metadata.version, info.CFBundleShortVersionString);
+  assert.equal(metadata.version, config.extraMetadata.version);
+  assert.equal(metadata.license, 'GPL-3.0-or-later');
+  const source = JSON.parse(
+    await fs.readFile(path.join(repository, 'release/native/source.json'), 'utf8'),
+  );
+  assert.match(source.revision, /^[0-9a-f]{40}$/);
+  assert.equal(info.EmulationWorkspaceSourceRevision, source.revision);
+  assert.equal(info.EmulationWorkspaceSourceDirty, source.dirty);
+  assert.match(
+    await fs.readFile(path.join(resources, 'licenses/SOURCE.txt'), 'utf8'),
+    new RegExp(`tree/${source.revision}`),
+  );
   assert.equal(metadata.main, './dist/main/main.js');
   assert.deepEqual(metadata.dependencies, {});
   for (const entry of entries.filter(

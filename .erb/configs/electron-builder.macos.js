@@ -1,3 +1,12 @@
+const fs = require('fs');
+const path = require('path');
+
+// Written by write-macos-source-notice.js immediately before packaging.
+const sourceFile = path.join(__dirname, '../../release/native/source.json');
+const source = fs.existsSync(sourceFile)
+  ? JSON.parse(fs.readFileSync(sourceFile, 'utf8'))
+  : { revision: 'unknown', dirty: true };
+
 module.exports = {
   extends: null,
   productName: 'Emulation Workspace',
@@ -5,6 +14,7 @@ module.exports = {
   copyright:
     'Development fork. Upstream copyright notices are preserved in Resources/licenses.',
   asar: true,
+  afterPack: '.erb/scripts/macos-after-pack.js',
   directories: {
     app: 'release/app',
     buildResources: 'assets',
@@ -42,6 +52,7 @@ module.exports = {
       to: `licenses/${name}-LICENSE.txt`,
     })),
     { from: 'LICENSE', to: 'licenses/upstream-MIT-LICENSE.txt' },
+    { from: 'release/native/SOURCE.txt', to: 'licenses/SOURCE.txt' },
     { from: 'LICENSE.md', to: 'licenses/upstream-LICENSE.md' },
     {
       from: 'docs/research/license-inventory.md',
@@ -61,6 +72,9 @@ module.exports = {
   ],
   extraMetadata: {
     name: 'emulation-workspace',
+    // The fork's own version line; EmuDeck's 2.x numbering is not ours to continue.
+    version: '0.1.0',
+    license: 'GPL-3.0-or-later',
     author: {
       name: 'Emulation Workspace contributors',
       url: 'https://github.com/Fbenhaddou/emudeck-electron-MacOS',
@@ -74,8 +88,9 @@ module.exports = {
     icon: 'assets/macos-development-icon.png',
     target: [{ target: 'dmg', arch: ['arm64'] }],
     hardenedRuntime: true,
-    entitlements: 'assets/entitlements.mac.plist',
-    entitlementsInherit: 'assets/entitlements.mac.plist',
+    // Only JIT: verified 2026-10-08 by a full packaged smoke under the hardened runtime.
+    entitlements: 'assets/entitlements.macos-workspace.plist',
+    entitlementsInherit: 'assets/entitlements.macos-workspace.plist',
     category: 'public.app-category.utilities',
     minimumSystemVersion: '12.0',
     // Console Mode frontends and emulators are spawned children, so macOS charges
@@ -83,6 +98,8 @@ module.exports = {
     // controllers; without this key macOS terminates the child (observed with
     // ES-DE 3.5.0 and two Bluetooth DualSense controllers).
     extendInfo: {
+      EmulationWorkspaceSourceRevision: source.revision,
+      EmulationWorkspaceSourceDirty: source.dirty,
       NSBluetoothAlwaysUsageDescription:
         'Emulation Workspace uses Bluetooth so wireless game controllers such as DualSense work in Console Mode and in games.',
       // PPSSPP emulates the PSP camera for the few games that use it.
